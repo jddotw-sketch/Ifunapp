@@ -4,10 +4,13 @@ package.name = ifunnyshare
 package.domain = com.local
 source.dir = .
 source.include_exts = py,xml,png,jpg,kv,atlas
-version = 1.0.0
+version = 1.0.1
 requirements = python3,kivy,requests,beautifulsoup4,pillow,pyjnius
 orientation = portrait
 fullscreen = 0
+
+# Required so the app can fetch iFunny pages and media.
+android.permissions = INTERNET
 
 # API 29+ lets the app save to Download/iFunny using MediaStore without broad
 # storage permission.
