@@ -1,0 +1,8 @@
+v1.0.2
+- Fixed MediaStore nested-class access for PyJNIus by using:
+  android.provider.MediaStore$MediaColumns
+  android.provider.MediaStore$Downloads
+- Writes downloaded bytes as Java-compatible bytearray chunks.
+- Accepts any text/* share MIME type, not only exact text/plain.
+- Failure screen now stays open and shows the actual exception.
+- Keeps INTERNET permission from v1.0.1.
