@@ -14,7 +14,7 @@ Intent = autoclass('android.content.Intent')
 class IFunnyShareApp(App):
     def build(self):
         self.busy = Lock()
-        self.label = Label(text='iFunny Downloader v1.0.3\nShare an iFunny link to this app.',
+        self.label = Label(text='iFunny Downloader v1.0.4\nShare an iFunny link to this app.',
                            halign='center', valign='middle')
         self.label.bind(size=lambda instance, value: setattr(instance, 'text_size', value))
         return self.label
