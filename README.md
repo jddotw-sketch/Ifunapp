@@ -1,4 +1,4 @@
-# iFunny Downloader v1.1.0 — background downloads
+# iFunny Downloader v1.1.1 — background downloads
 
 Upload ALL the files/folders in this ZIP to your repository, including java/, service.py, storage.py, and .github/workflows/build-apk.yml. Replace the earlier buildozer.spec and main.py. Run GitHub Actions → Build iFunny Downloader APK → Run workflow.
 
@@ -26,3 +26,9 @@ Permissions keep INTERNET and WRITE_EXTERNAL_STORAGE, and add POST_NOTIFICATIONS
 - Error notifications show the actual exception. No __pycache__ or .pyc upload is needed.
 
 Validation: Python syntax; simulated worker queue success, download failure and save failure; native Java compilation against Android API 35 with inspected p4a service sources and minimal bootstrap stubs; rendered upstream manifest verified. GitHub Actions now checks the generated manifest before uploading the APK. This is source for GitHub Actions, not a prebuilt or phone-tested APK.
+
+## GIF fix in v1.1.1
+
+Selects the shared post's lazy-loaded animated media (`data-src` / `data-source` / video sources) before its Open Graph poster. Current iFunny GIF posts often contain an MP4 animation, which is saved as MP4 instead of a still JPEG. Native GIF payloads are saved as .gif with image/gif MIME and remain byte-for-byte intact, including all frames and timing. GIF post pages with no discoverable animated source report an error instead of saving a preview. The background service, notifications and working MediaStore save path are unchanged.
+
+GIF validation: seven regression tests passed, including source selection, recommended-post isolation, byte-for-byte native GIF preservation with two frames and unequal frame durations, MP4 MIME/extension handling, and refusal to save a still poster for a GIF page. Two live GIF-post downloads succeeded and returned MP4 payloads with ftypisom signatures. Phone testing still required after rebuilding.

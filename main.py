@@ -9,7 +9,7 @@ from jnius import autoclass
 
 class IFunnySetupApp(App):
     def build(self):
-        self.label = Label(text='iFunny Downloader v1.1.0\n\nShare a post to download in the background.\n'
+        self.label = Label(text='iFunny Downloader v1.1.1\n\nShare a post to download in the background.\n'
                            'Allow notifications to see when it finishes.\nFiles: Download/iFunny',
                            halign='center', valign='middle')
         self.label.bind(size=lambda widget, size: setattr(widget, 'text_size', size))

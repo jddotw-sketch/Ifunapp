@@ -41,14 +41,57 @@ def full_quality_image_url(url):
     return url
 
 
+def media_kind(url):
+    suffix = Path(urlparse(url).path).suffix.lower()
+    if suffix in ('.mp4', '.webm', '.mov', '.m4v'):
+        return 'video'
+    if suffix in ('.gif', '.webp', '.jpg', '.jpeg', '.png', '.avif'):
+        return 'image'
+    return None
+
+
+def post_scope(soup, page_url):
+    # Scope to the shared post, so recommended posts cannot supply its animation.
+    canonical = soup.find('link', attrs={'rel': 'canonical'})
+    target_url = canonical.get('href') if canonical else page_url
+    post_id = urlparse(target_url or page_url).path.rstrip('/').rsplit('/', 1)[-1].rsplit('-', 1)[-1]
+    node = soup.find(attrs={'data-meme-id': post_id})
+    if node is not None:
+        return node
+    nodes = soup.find_all(attrs={'data-meme-id': True})
+    if len(nodes) == 1:
+        return nodes[0]
+    return BeautifulSoup('', 'html.parser') if nodes else soup
+
+
 def resolve_media(post_url, session):
     response = session.get(post_url, timeout=(10, 30))
     response.raise_for_status()
     soup = BeautifulSoup(response.text, 'html.parser')
+    scope = post_scope(soup, response.url)
+    # Actual lazy-loaded media comes before the Open Graph still preview.
+    for tag in scope.find_all(['img', 'video', 'source', 'div']):
+        for attribute in ('data-source', 'data-src', 'src'):
+            raw = tag.get(attribute)
+            if not raw or str(raw).startswith(('data:', 'blob:')):
+                continue
+            url = urljoin(response.url, str(raw))
+            kind = media_kind(url)
+            if kind == 'video' or Path(urlparse(url).path).suffix.lower() == '.gif':
+                return full_quality_image_url(url), kind
     video = get_meta(soup, 'og:video:secure_url', 'og:video:url', 'og:video')
     if video:
         return urljoin(response.url, video), 'video'
     image = get_meta(soup, 'og:image:secure_url', 'og:image')
+    if image and Path(urlparse(image).path).suffix.lower() in ('.gif', '.webp'):
+        return full_quality_image_url(urljoin(response.url, image)), 'image'
+    for tag in scope.find_all('img'):
+        raw = tag.get('data-source') or tag.get('data-src') or tag.get('src') or ''
+        if Path(urlparse(str(raw)).path).suffix.lower() == '.webp':
+            return full_quality_image_url(urljoin(response.url, str(raw))), 'image'
+    # /gif/ pages must never silently fall back to a JPEG poster.
+    if '/gif/' in urlparse(response.url).path or '/gif/' in urlparse(post_url).path:
+        raise DownloadError('The animated source was not found on this GIF post. The still preview was not saved.')
     if image:
         return full_quality_image_url(urljoin(response.url, image)), 'image'
     for tag in soup.find_all('img'):
@@ -66,7 +109,7 @@ def safe_stem(url):
 def crop_bottom(data, pixels=20):
     with Image.open(io.BytesIO(data)) as image:
         fmt = (image.format or 'JPEG').upper()
-        if image.height <= pixels or getattr(image, 'is_animated', False):
+        if fmt == 'GIF' or image.height <= pixels or getattr(image, 'is_animated', False):
             return data, fmt
         cropped = image.crop((0, 0, image.width, image.height - pixels))
         output = io.BytesIO()
@@ -90,7 +133,22 @@ def fetch_post(post_url, crop_logo=True):
         ext = Path(urlparse(media_url).path).suffix.lower()
         if not ext or len(ext) > 5:
             ext = mimetypes.guess_extension(mime) or ('.mp4' if kind == 'video' else '.jpg')
-        if kind == 'image' and crop_logo:
+        # File signatures beat misleading response headers or URL extensions.
+        # Keep all GIF bytes untouched: never re-save just the first frame.
+        if data[:6] in (b'GIF87a', b'GIF89a'):
+            ext, mime, kind = '.gif', 'image/gif', 'image'
+        elif len(data) >= 12 and data[4:8] == b'ftyp' and data[8:12] not in (b'avif', b'avis', b'heic', b'heix'):
+            ext, mime, kind = '.mp4', 'video/mp4', 'video'
+        if kind == 'image' and '/gif/' in urlparse(post_url).path:
+            try:
+                with Image.open(io.BytesIO(data)) as animated:
+                    if not getattr(animated, 'is_animated', False):
+                        raise DownloadError('This GIF post returned a still image instead of its animation.')
+            except DownloadError:
+                raise
+            except Exception as error:
+                raise DownloadError('Could not verify the animated image.') from error
+        if kind == 'image' and crop_logo and mime != 'image/gif':
             try:
                 data, fmt = crop_bottom(data)
                 formats = {'JPEG': ('.jpg', 'image/jpeg'), 'PNG': ('.png', 'image/png'),
