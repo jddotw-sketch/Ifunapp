@@ -1,4 +1,4 @@
-# iFunny Downloader v1.1.1 — background downloads
+# iFunny Downloader v1.1.2 — background downloads
 
 Upload ALL the files/folders in this ZIP to your repository, including java/, service.py, storage.py, and .github/workflows/build-apk.yml. Replace the earlier buildozer.spec and main.py. Run GitHub Actions → Build iFunny Downloader APK → Run workflow.
 
@@ -27,8 +27,18 @@ Permissions keep INTERNET and WRITE_EXTERNAL_STORAGE, and add POST_NOTIFICATIONS
 
 Validation: Python syntax; simulated worker queue success, download failure and save failure; native Java compilation against Android API 35 with inspected p4a service sources and minimal bootstrap stubs; rendered upstream manifest verified. GitHub Actions now checks the generated manifest before uploading the APK. This is source for GitHub Actions, not a prebuilt or phone-tested APK.
 
-## GIF fix in v1.1.1
+## GIF fix in v1.1.2
 
 Selects the shared post's lazy-loaded animated media (`data-src` / `data-source` / video sources) before its Open Graph poster. Current iFunny GIF posts often contain an MP4 animation, which is saved as MP4 instead of a still JPEG. Native GIF payloads are saved as .gif with image/gif MIME and remain byte-for-byte intact, including all frames and timing. GIF post pages with no discoverable animated source report an error instead of saving a preview. The background service, notifications and working MediaStore save path are unchanged.
 
 GIF validation: seven regression tests passed, including source selection, recommended-post isolation, byte-for-byte native GIF preservation with two frames and unequal frame durations, MP4 MIME/extension handling, and refusal to save a still poster for a GIF page. Two live GIF-post downloads succeeded and returned MP4 payloads with ftypisom signatures. Phone testing still required after rebuilding.
+
+## Automatic retries in v1.1.2
+
+Four total download attempts: the first attempt plus three automatic retries after 3, 8 and 20 seconds. Timeouts, connection failures, interrupted downloads, temporary extraction failures and HTTP 408/425/429/500/502/503/504 responses trigger retries. A server Retry-After delay is used when longer, capped at 60 seconds. The ongoing notification shows the attempt count and retry delay. Success is notified once; the final error is notified only after retries run out. Permanent HTTP errors such as 401, 403 and 404 are reported immediately.
+
+Only the download is retried. The downloaded bytes are saved once after a successful attempt; storage permission and disk errors do not repeat the file-saving operation. The foreground worker keeps its wake-lock lease renewed during attempts and delays. GIF handling and the existing share registration are preserved.
+
+Upload the new retry_download.py along with the rest of this package, then rebuild through GitHub Actions. Retries do not persist after an app force-stop or Android killing the service.
+
+Retry validation: eight tests passed for recovery, attempt limits, permanent HTTP failures, rate-limit delays, malformed headers, extraction failures, unexpected errors and single save/success notification after recovery. Updated Java compiled against Android API 35 with the same inspected p4a sources/bootstrap stubs. The APK still requires rebuilding and phone testing.
