@@ -31,7 +31,7 @@ jobs:
       - name: Restore source archive
         run: |
           cat komikku-source-import.zip.part-* > /tmp/komikku-source-import.zip
-          echo "ff1d61ae1b592a793c67646a289afe8af453b1f6f7ac6bd79da5a5230bb60164  /tmp/komikku-source-import.zip" | sha256sum --check
+          echo "6c81b61f3846aa10eaeba2e261988cb40de72759ae02cad062bfd97ace22c975  /tmp/komikku-source-import.zip" | sha256sum --check
           unzip -q /tmp/komikku-source-import.zip -d /tmp/komikku-source-import
           test -f /tmp/komikku-source-import/komikku-master/gradlew
 
@@ -44,10 +44,16 @@ jobs:
           git add .
           git commit -m "Prepare source archive for build"
 
-      - name: Build debug APK
+      - name: Format and verify source
         working-directory: /tmp/komikku-source-import/komikku-master
         run: |
           chmod +x ./gradlew
+          ./gradlew spotlessApply
+          ./gradlew spotlessCheck
+
+      - name: Build debug APK
+        working-directory: /tmp/komikku-source-import/komikku-master
+        run: |
           ./gradlew assembleDebug --stacktrace
 
       - name: Upload APK
