@@ -1,0 +1,49 @@
+name: Build Komikku Source Import APK
+
+on:
+  push:
+    branches:
+      - komikku-source-import
+    paths:
+      - "komikku-source-import.zip.part-*"
+      - ".github/workflows/build-komikku-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Restore source archive
+        run: |
+          cat komikku-source-import.zip.part-* > /tmp/komikku-source-import.zip
+          unzip -q /tmp/komikku-source-import.zip -d /tmp/komikku-source-import
+          test -f /tmp/komikku-source-import/komikku-master/gradlew
+
+      - name: Build debug APK
+        working-directory: /tmp/komikku-source-import/komikku-master
+        run: |
+          chmod +x ./gradlew
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Komikku-Source-Import-debug-apk
+          path: /tmp/komikku-source-import/komikku-master/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
