@@ -7,4 +7,4 @@ cat komikku-source-import.zip.part-* > komikku-source-import.zip
 unzip komikku-source-import.zip
 ```
 
-The archive SHA-256 is `$(sha256sum komikku-source-import.zip | cut -d' ' -f1)`.
+Archive SHA-256: `ff1d61ae1b592a793c67646a289afe8af453b1f6f7ac6bd79da5a5230bb60164`
