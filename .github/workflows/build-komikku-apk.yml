@@ -35,6 +35,15 @@ jobs:
           unzip -q /tmp/komikku-source-import.zip -d /tmp/komikku-source-import
           test -f /tmp/komikku-source-import/komikku-master/gradlew
 
+      - name: Initialize source Git metadata
+        working-directory: /tmp/komikku-source-import/komikku-master
+        run: |
+          git init
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "Prepare source archive for build"
+
       - name: Build debug APK
         working-directory: /tmp/komikku-source-import/komikku-master
         run: |
