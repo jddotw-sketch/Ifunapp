@@ -1,6 +1,6 @@
 # Komikku Source Import
 
-This branch contains the updated Komikku project archive in seven binary parts. Join the parts in order to restore the ZIP:
+This branch contains the updated Komikku project archive in 17 binary parts. Join the parts in order to restore the ZIP:
 
 ```sh
 cat komikku-source-import.zip.part-* > komikku-source-import.zip
