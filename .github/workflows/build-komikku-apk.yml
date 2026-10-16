@@ -31,7 +31,7 @@ jobs:
       - name: Restore source archive
         run: |
           cat komikku-source-import.zip.part-* > /tmp/komikku-source-import.zip
-          echo "e5b665bc945e3db51c3c2e3ba4dd5f26682c67fdb526bc1ef4aa89b9787fcec9  /tmp/komikku-source-import.zip" | sha256sum --check
+          echo "b6edaa0651c27b3860641d16ca8f1fe6d117deaf91a7c209bca427e4a319ccc4  /tmp/komikku-source-import.zip" | sha256sum --check
           unzip -q /tmp/komikku-source-import.zip -d /tmp/komikku-source-import
           test -f /tmp/komikku-source-import/komikku-master/gradlew
 
