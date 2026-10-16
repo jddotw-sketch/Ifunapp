@@ -48,17 +48,28 @@ jobs:
         working-directory: /tmp/komikku-source-import/komikku-master
         run: |
           chmod +x ./gradlew
-          ./gradlew spotlessApply
-          ./gradlew spotlessCheck
+          ./gradlew spotlessApply --quiet
+          ./gradlew spotlessCheck --quiet
 
       - name: Build debug APK
         working-directory: /tmp/komikku-source-import/komikku-master
         run: |
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleDebug --quiet --stacktrace
 
       - name: Test import recovery
         working-directory: /tmp/komikku-source-import/komikku-master
         run: ./gradlew :app:testDebugUnitTest --tests "eu.kanade.tachiyomi.ui.browse.source.browse.SourceImport*Test" --stacktrace
+
+      - name: Upload import test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Source-Import-test-reports
+          path: |
+            /tmp/komikku-source-import/komikku-master/app/build/test-results/testDebugUnitTest/
+            /tmp/komikku-source-import/komikku-master/app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
