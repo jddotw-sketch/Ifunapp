@@ -31,7 +31,7 @@ jobs:
       - name: Restore source archive
         run: |
           cat komikku-source-import.zip.part-* > /tmp/komikku-source-import.zip
-          echo "2e494d81e441617eb06a80ab77effad163c5374a9cfe2e22e4eb939f4be2994b  /tmp/komikku-source-import.zip" | sha256sum --check
+          echo "9fd013e36463808632a48efa8bf53be2371cbf1bb2933e1a0edb504c3e719e26  /tmp/komikku-source-import.zip" | sha256sum --check
           unzip -q /tmp/komikku-source-import.zip -d /tmp/komikku-source-import
           test -f /tmp/komikku-source-import/komikku-master/gradlew
 
@@ -55,6 +55,10 @@ jobs:
         working-directory: /tmp/komikku-source-import/komikku-master
         run: |
           ./gradlew assembleDebug --stacktrace
+
+      - name: Test import recovery
+        working-directory: /tmp/komikku-source-import/komikku-master
+        run: ./gradlew :app:testDebugUnitTest --tests "eu.kanade.tachiyomi.ui.browse.source.browse.SourceImportPacingTest" --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
