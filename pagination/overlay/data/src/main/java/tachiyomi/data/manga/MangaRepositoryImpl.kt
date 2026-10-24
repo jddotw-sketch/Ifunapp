@@ -104,10 +104,10 @@ class MangaRepositoryImpl(
         return handler.await(inTransaction = true) {
             val ids = mangaIds.distinct()
             val added = mangasQueries.countSourceImportAdditions(ids).executeAsOne().toInt()
-            ids.forEach { mangaId ->
-                mangas_categoriesQueries.deleteMangaCategoryByMangaId(mangaId)
-                mangas_categoriesQueries.insert(mangaId, categoryId)
-            }
+            // Replacing category assignments set-wise avoids two prepared statements
+            // per manga, while retaining the old replace-all category semantics.
+            mangas_categoriesQueries.deleteSourceImportCategories(ids)
+            mangas_categoriesQueries.insertSourceImportCategories(categoryId, ids)
             mangasQueries.addSourceImportToLibrary(dateAdded, ids)
             added
         }
