@@ -25,6 +25,7 @@ jobs:
           root = Path('/tmp/komikku-source-import/komikku-master')
           target_names = {
               "ImportMangaToLibrary.kt",
+              "SourceImportBatchTest.kt",
               "NetworkToLocalManga.kt",
               "MangaRepositoryImpl.kt",
               "MangaRepository.kt",
