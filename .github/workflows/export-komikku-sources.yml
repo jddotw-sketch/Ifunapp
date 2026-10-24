@@ -1,8 +1,9 @@
-name: Expose importer files for patch development
+name: Export database and import implementation for optimization
 on:
   push:
-    branches: [komikku-adaptive-16]
-    paths: [.github/workflows/export-komikku-sources.yml]
+    branches: [komikku-fast-300k]
+    paths:
+      - .github/workflows/export-komikku-sources.yml
   workflow_dispatch:
 permissions:
   contents: write
@@ -11,47 +12,44 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Reassemble source
+      - name: Reassemble archived code
         run: |
           cat komikku-source-import.zip.part-* > /tmp/komikku.zip
           echo "9113479c0eea4151bf2d0708aea1ba40fa3d72db90eea0a1c687c0f7e288c36c  /tmp/komikku.zip" | sha256sum --check
           unzip -q /tmp/komikku.zip -d /tmp/komikku-source-import
-          python3 adaptive_import_patch.py
-      - name: Export Kotlin importer modules
+      - name: Export existing database code without changing modified importer
         run: |
           python3 - <<'PY'
           import shutil
           from pathlib import Path
-          root=Path('/tmp/komikku-source-import/komikku-master')
-          if not root.exists():
-              root=Path('/tmp/komikku-source-import/komikku-master')
-          targets = [
-              'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportLoader.kt',
-              'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportAutoTuner.kt',
-              'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportManager.kt',
-              'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportWorker.kt',
-              'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportJournal.kt',
-              'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/BrowseSourceScreenModel.kt',
-              'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/BrowseSourceScreen.kt',
-              'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportInfoSheet.kt',
-              'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportTelemetry.kt',
-              'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportPagination.kt',
-              'app/src/test/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportAutoLoaderTest.kt',
-              'app/src/test/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportLoaderTest.kt',
-              'app/src/test/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportAutoTunerTest.kt',
-              'app/src/test/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportTelemetryTest.kt',
-          ]
-          for f in targets:
-              p=root/f
-              if p.exists():
-                  dest=Path('pagination/overlay')/f
-                  dest.parent.mkdir(parents=True,exist_ok=True)
-                  shutil.copy2(p,dest)
-                  print(f'Exported {f}')
+          root = Path('/tmp/komikku-source-import/komikku-master')
+          target_names = {
+              "ImportMangaToLibrary.kt",
+              "NetworkToLocalManga.kt",
+              "MangaRepositoryImpl.kt",
+              "MangaRepository.kt",
+              "MangaMapper.kt",
+              "DatabaseHandler.kt",
+              "mangas.sq",
+              "mangas_categories.sq",
+              "SourcePreferences.kt",
+          }
+          for filename in sorted(target_names):
+              matches = [x for x in root.rglob(filename) if x.is_file() and 'build/' not in str(x)]
+              print(filename, len(matches))
+              for path in matches:
+                  relative = path.relative_to(root)
+                  target = Path('pagination/overlay') / relative
+                  if target.exists():
+                      print('SKIP existing overlay', relative)
+                      continue
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  shutil.copy2(path, target)
+                  print('EXPORTED', relative)
           PY
-      - name: Push selected sources to editable overlay
+      - name: Commit editable database sources
         run: |
           git config user.name "GitHub Actions"
           git config user.email "actions@users.noreply.github.com"
           git add pagination/overlay
-          git diff --cached --quiet || (git commit -m "Expose existing importer Kotlin files for adaptive scheduler upgrade" && git push)
+          git diff --cached --quiet || (git commit -m "Export database import files to optimize 300k-entry ingestion" && git push)
