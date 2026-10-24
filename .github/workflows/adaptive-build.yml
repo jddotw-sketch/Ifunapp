@@ -11,7 +11,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -53,6 +53,19 @@ jobs:
       - name: Assemble debug APK
         working-directory: /tmp/komikku-source-import/komikku-master
         run: ./gradlew assembleDebug --stacktrace
+      - name: Publish APK as a GitHub release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          apk=$(find /tmp/komikku-source-import/komikku-master/app/build/outputs/apk -type f -name '*.apk' | head -n 1)
+          test -n "$apk"
+          ls -lh "$apk"
+          tag="komikku-adaptive16-20261024"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "$apk" --clobber
+          else
+            gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title "Komikku Adaptive Pagination 16" --notes "Experimental Komikku source importer: completion-driven pagination, adaptive lookahead and a 16-request ceiling. Debug build; unit tests passed." --prerelease
+          fi
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
@@ -60,3 +73,4 @@ jobs:
           path: /tmp/komikku-source-import/komikku-master/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
+          overwrite: true
