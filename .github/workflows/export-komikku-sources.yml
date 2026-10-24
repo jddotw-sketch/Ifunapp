@@ -15,7 +15,7 @@ jobs:
         run: |
           cat komikku-source-import.zip.part-* > /tmp/komikku.zip
           echo "9113479c0eea4151bf2d0708aea1ba40fa3d72db90eea0a1c687c0f7e288c36c  /tmp/komikku.zip" | sha256sum --check
-          unzip -q /tmp/komikku.zip -d /tmp/komikku-src
+          unzip -q /tmp/komikku.zip -d /tmp/komikku-source-import
           python3 adaptive_import_patch.py
       - name: Export Kotlin importer modules
         run: |
@@ -24,7 +24,7 @@ jobs:
           from pathlib import Path
           root=Path('/tmp/komikku-source-import/komikku-master')
           if not root.exists():
-              root=Path('/tmp/komikku-src/komikku-master')
+              root=Path('/tmp/komikku-source-import/komikku-master')
           targets = [
               'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportLoader.kt',
               'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportAutoTuner.kt',
