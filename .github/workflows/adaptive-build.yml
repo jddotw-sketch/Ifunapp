@@ -1,9 +1,59 @@
-name: Adaptive Import Build
+name: Build adaptive pagination Komikku APK
+
 on:
+  push:
+    branches:
+      - komikku-adaptive-16
+    paths:
+      - adaptive_import_patch.py
+      - .github/workflows/adaptive-build.yml
   workflow_dispatch:
+
+permissions:
+  contents: read
+
 jobs:
-  verify:
-    runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: echo Build verification initialized
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+      - name: Restore archived source
+        run: |
+          cat komikku-source-import.zip.part-* > /tmp/komikku-source-import.zip
+          echo "9113479c0eea4151bf2d0708aea1ba40fa3d72db90eea0a1c687c0f7e288c36c  /tmp/komikku-source-import.zip" | sha256sum --check
+          unzip -q /tmp/komikku-source-import.zip -d /tmp/komikku-source-import
+      - name: Patch pagination limits
+        run: python3 adaptive_import_patch.py
+      - name: Initialize Gradle project source control
+        working-directory: /tmp/komikku-source-import/komikku-master
+        run: |
+          git init
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add .
+          git commit -m "Prepare patched Komikku source"
+      - name: Verify formatting
+        working-directory: /tmp/komikku-source-import/komikku-master
+        run: |
+          chmod +x gradlew
+          ./gradlew spotlessApply spotlessCheck --quiet
+      - name: Run importer tests
+        working-directory: /tmp/komikku-source-import/komikku-master
+        run: ./gradlew :app:testDebugUnitTest --tests 'eu.kanade.tachiyomi.ui.browse.source.browse.SourceImport*Test' --stacktrace
+      - name: Assemble debug APK
+        working-directory: /tmp/komikku-source-import/komikku-master
+        run: ./gradlew assembleDebug --stacktrace
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Komikku-Adaptive-16-Debug-APK
+          path: /tmp/komikku-source-import/komikku-master/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
