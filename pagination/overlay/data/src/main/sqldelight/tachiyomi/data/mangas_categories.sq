@@ -25,3 +25,11 @@ VALUES (:mangaId, :categoryId);
 deleteMangaCategoryByMangaId:
 DELETE FROM mangas_categories
 WHERE manga_id = :mangaId;
+
+-- Source imports replace category membership for a whole batch in one statement.
+deleteSourceImportCategories:
+DELETE FROM mangas_categories WHERE manga_id IN :mangaIds;
+
+insertSourceImportCategories:
+INSERT INTO mangas_categories(manga_id, category_id)
+SELECT _id, :categoryId FROM mangas WHERE _id IN :mangaIds;
