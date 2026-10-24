@@ -7,6 +7,7 @@ on:
     paths:
       - adaptive_import_patch.py
       - .github/workflows/adaptive-build.yml
+      - 'pagination/overlay/**'
   workflow_dispatch:
 
 permissions:
@@ -31,6 +32,8 @@ jobs:
           unzip -q /tmp/komikku-source-import.zip -d /tmp/komikku-source-import
       - name: Patch pagination limits
         run: python3 adaptive_import_patch.py
+      - name: Apply pagination overlay
+        run: cp -a pagination/overlay/. /tmp/komikku-source-import/komikku-master/
       - name: Initialize Gradle project source control
         working-directory: /tmp/komikku-source-import/komikku-master
         run: |
