@@ -3,7 +3,7 @@ name: Build adaptive pagination Komikku APK
 on:
   push:
     branches:
-      - komikku-adaptive-16
+      - komikku-fast-300k
     paths:
       - adaptive_import_patch.py
       - .github/workflows/adaptive-build.yml
