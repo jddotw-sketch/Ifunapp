@@ -87,7 +87,7 @@ class SourceImportTelemetryTest {
     @Test
     fun `selected preload limits bound actual concurrent loading`() = runTest {
         for (selected in listOf(0, 1, 4, 16, 64)) {
-            val limit = selected.coerceIn(1, 32)
+            val limit = selected.coerceIn(1, 16)
             val telemetry = SourceImportTelemetry(selected) { testScheduler.currentTime }
             var active = 0
             var maximum = 0
