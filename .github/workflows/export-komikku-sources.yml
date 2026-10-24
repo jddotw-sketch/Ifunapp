@@ -1,0 +1,57 @@
+name: Expose importer files for patch development
+on:
+  push:
+    branches: [komikku-adaptive-16]
+    paths: [.github/workflows/export-komikku-sources.yml]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reassemble source
+        run: |
+          cat komikku-source-import.zip.part-* > /tmp/komikku.zip
+          echo "9113479c0eea4151bf2d0708aea1ba40fa3d72db90eea0a1c687c0f7e288c36c  /tmp/komikku.zip" | sha256sum --check
+          unzip -q /tmp/komikku.zip -d /tmp/komikku-src
+          python3 adaptive_import_patch.py
+      - name: Export Kotlin importer modules
+        run: |
+          python3 - <<'PY'
+          import shutil
+          from pathlib import Path
+          root=Path('/tmp/komikku-source-import/komikku-master')
+          if not root.exists():
+              root=Path('/tmp/komikku-src/komikku-master')
+          targets = [
+              'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportLoader.kt',
+              'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportAutoTuner.kt',
+              'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportManager.kt',
+              'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportWorker.kt',
+              'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportJournal.kt',
+              'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/BrowseSourceScreenModel.kt',
+              'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/BrowseSourceScreen.kt',
+              'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportInfoSheet.kt',
+              'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportTelemetry.kt',
+              'app/src/main/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportPagination.kt',
+              'app/src/test/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportAutoLoaderTest.kt',
+              'app/src/test/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportLoaderTest.kt',
+              'app/src/test/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportAutoTunerTest.kt',
+              'app/src/test/java/eu/kanade/tachiyomi/ui/browse/source/browse/SourceImportTelemetryTest.kt',
+          ]
+          for f in targets:
+              p=root/f
+              if p.exists():
+                  dest=Path('pagination/overlay')/f
+                  dest.parent.mkdir(parents=True,exist_ok=True)
+                  shutil.copy2(p,dest)
+                  print(f'Exported {f}')
+          PY
+      - name: Push selected sources to editable overlay
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@users.noreply.github.com"
+          git add pagination/overlay
+          git diff --cached --quiet || (git commit -m "Expose existing importer Kotlin files for adaptive scheduler upgrade" && git push)
