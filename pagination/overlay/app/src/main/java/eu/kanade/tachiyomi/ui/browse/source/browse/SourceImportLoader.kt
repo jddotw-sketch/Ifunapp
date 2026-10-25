@@ -104,7 +104,7 @@ internal class SourceImportLoader(
                 telemetry?.clearQueue()
             }
             val retryKey = repeatedPageKey ?: break
-            if (usesCursor || slowMode || pacing.pageDelayMillis > 0 || parallelDisabled || preloadPages == 1) break
+            if (usesCursor || slowMode || parallelDisabled || preloadPages == 1) break
             parallelDisabled = true
             onSequentialFallback()
             telemetry?.mode(SourceImportStats.Mode.REPEATED_FALLBACK, 1)
@@ -118,7 +118,7 @@ internal class SourceImportLoader(
         emit: suspend (Int, MangasPage) -> Unit,
     ) = coroutineScope {
         val firstPage = pacing.fetch(::retry) { requestPage(firstKey, request) }
-        if (usesCursor || slowMode || pacing.pageDelayMillis > 0 || parallelDisabled || (preloadPages == 1 && tuner == null)) {
+        if (usesCursor || slowMode || parallelDisabled || (preloadPages == 1 && tuner == null)) {
             val mode = when {
                 usesCursor -> SourceImportStats.Mode.CURSOR
                 slowMode -> SourceImportStats.Mode.SLOW
@@ -148,8 +148,7 @@ internal class SourceImportLoader(
         var lookahead = (concurrency * 3).coerceAtLeast(16)
         val maxLookahead = 128
         var upperBound: Int? = null
-        var failureStreak = 0
-        var resumeParallelAt = 0L
+        var successfulSinceFailure = 0
 
         fun launchRequests() {
             // Both the active request count and the speculative window are bounded.
@@ -173,7 +172,7 @@ internal class SourceImportLoader(
 
         try {
             launchRequests()
-            while (true) {
+            scheduler@ while (true) {
                 val (key, result) = completed.receive()
                 inFlight.remove(key)
                 ready[key] = result
@@ -192,30 +191,41 @@ internal class SourceImportLoader(
                 while (true) {
                     val next = ready.remove(nextEmitKey) ?: break
                     if (next.isFailure) {
-                        // Recover the first missing page without discarding completed pages.
-                        failureStreak++
+                        // A transient failure should lower the request rate, not permanently
+                        // disable parallel pagination or poison the saved checkpoint.
+                        // Drain speculative requests and retry the exact missing page in order.
                         concurrency = (concurrency / 2).coerceAtLeast(1)
+                        successfulSinceFailure = 0
                         telemetry?.mode(SourceImportStats.Mode.ERROR_FALLBACK, 1)
-                        // Stop speculative requests before retrying a throttled source.
                         inFlight.values.forEach { it.cancel() }
                         inFlight.values.forEach { it.join() }
                         inFlight.clear()
                         ready.clear()
-                        parallelDisabled = true
-                        onSequentialFallback()
                         pacing.recover(::retry)
                         val recovered = pacing.fetch(::retry) { requestPage(nextEmitKey, request) }
-                        loadSequential(nextEmitKey, recovered, request, emit)
-                        return@coroutineScope
+                        if (recovered.mangas.isEmpty()) return@coroutineScope
+                        emit(nextEmitKey, recovered)
+                        if (!recovered.hasNextPage) return@coroutineScope
+                        nextEmitKey++
+                        nextRequestKey = nextEmitKey
+                        upperBound = null
+                        launchRequests()
+                        continue@scheduler
                     }
                     val page = next.getOrThrow()
                     if (page.mangas.isEmpty()) return@coroutineScope
                     emit(nextEmitKey, page)
                     if (!page.hasNextPage) return@coroutineScope
                     nextEmitKey++
+                    // Add capacity slowly after recovery rather than instantly restoring
+                    // the previous burst that may have triggered throttling.
+                    if (concurrency < preloadPages && ++successfulSinceFailure >= 16) {
+                        concurrency++
+                        successfulSinceFailure = 0
+                    }
                 }
 
-                if (tuner?.hasChange() == true) {
+                if (tuner?.hasChange() == true && successfulSinceFailure == 0 && concurrency == (tuner?.limit ?: preloadPages)) {
                     tuner.applyNext(nextEmitKey)
                     concurrency = tuner.limit.coerceIn(1, preloadPages)
                     lookahead = maxOf(lookahead, concurrency * 3).coerceAtMost(maxLookahead)
