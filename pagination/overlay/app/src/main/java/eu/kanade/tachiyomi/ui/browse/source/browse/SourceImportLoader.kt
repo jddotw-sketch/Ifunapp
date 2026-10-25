@@ -5,8 +5,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 internal class SourceImportLoader(
     private val slowMode: Boolean,
@@ -148,7 +148,8 @@ internal class SourceImportLoader(
         var lookahead = (concurrency * 3).coerceAtLeast(16)
         val maxLookahead = 128
         var upperBound: Int? = null
-        var successfulSinceFailure = 0
+        var recoveringFromError = false
+        var successfulRecoveryPages = 0
 
         fun launchRequests() {
             // Both the active request count and the speculative window are bounded.
@@ -174,7 +175,9 @@ internal class SourceImportLoader(
             launchRequests()
             scheduler@ while (true) {
                 val (key, result) = completed.receive()
-                inFlight.remove(key)
+                // A prior generation can leave completed responses in the channel
+                // when recovery cancels speculative work. Never accept stale results.
+                if (inFlight.remove(key) == null || key < nextEmitKey) continue@scheduler
                 ready[key] = result
 
                 // A slow earlier page must not leave the request slots idle.
@@ -195,12 +198,16 @@ internal class SourceImportLoader(
                         // disable parallel pagination or poison the saved checkpoint.
                         // Drain speculative requests and retry the exact missing page in order.
                         concurrency = (concurrency / 2).coerceAtLeast(1)
-                        successfulSinceFailure = 0
+                        recoveringFromError = true
+                        successfulRecoveryPages = 0
                         telemetry?.mode(SourceImportStats.Mode.ERROR_FALLBACK, 1)
                         inFlight.values.forEach { it.cancel() }
                         inFlight.values.forEach { it.join() }
                         inFlight.clear()
                         ready.clear()
+                        // Cancelled jobs may have queued responses just before cancellation.
+                        // Drain those responses before reusing page keys for the retry generation.
+                        while (completed.tryReceive().isSuccess) {}
                         pacing.recover(::retry)
                         val recovered = pacing.fetch(::retry) { requestPage(nextEmitKey, request) }
                         if (recovered.mangas.isEmpty()) return@coroutineScope
@@ -217,15 +224,17 @@ internal class SourceImportLoader(
                     emit(nextEmitKey, page)
                     if (!page.hasNextPage) return@coroutineScope
                     nextEmitKey++
-                    // Add capacity slowly after recovery rather than instantly restoring
-                    // the previous burst that may have triggered throttling.
-                    if (concurrency < preloadPages && ++successfulSinceFailure >= 16) {
-                        concurrency++
-                        successfulSinceFailure = 0
+                    // Only clamp ramp-up after an actual error. Do not interfere
+                    // with normal automatic tuning, which must be free to scale and settle.
+                    if (recoveringFromError && ++successfulRecoveryPages >= 16) {
+                        val recoveryTarget = tuner?.limit ?: preloadPages
+                        if (concurrency < recoveryTarget) concurrency++
+                        successfulRecoveryPages = 0
+                        if (concurrency >= recoveryTarget) recoveringFromError = false
                     }
                 }
 
-                if (tuner?.hasChange() == true && successfulSinceFailure == 0 && concurrency == (tuner?.limit ?: preloadPages)) {
+                if (!recoveringFromError && tuner?.hasChange() == true) {
                     tuner.applyNext(nextEmitKey)
                     concurrency = tuner.limit.coerceIn(1, preloadPages)
                     lookahead = maxOf(lookahead, concurrency * 3).coerceAtMost(maxLookahead)
