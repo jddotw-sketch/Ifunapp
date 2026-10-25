@@ -214,7 +214,7 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                     usesCursor = source.isEhBasedSource(),
                     onRetry = { delayMillis ->
                         retrying = delayMillis != null
-                        if (delayMillis != null) store.update(store.config.copy(recoveryDelayMillis = delayMillis, sequential = true))
+                        if (delayMillis != null) store.update(store.config.copy(recoveryDelayMillis = delayMillis))
                     },
                     preloadPages = store.config.preloadPages,
                     telemetry = telemetry,
