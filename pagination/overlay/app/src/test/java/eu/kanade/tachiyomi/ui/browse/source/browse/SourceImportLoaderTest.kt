@@ -198,7 +198,7 @@ class SourceImportLoaderTest {
     }
 
     @Test
-    fun `a transient first page error allows parallel requests after recovery` = runTest {
+    fun `a transient first page error allows parallel requests after recovery`() = runTest {
         var attempts = 0
         var active = 0
         var maximumActive = 0
