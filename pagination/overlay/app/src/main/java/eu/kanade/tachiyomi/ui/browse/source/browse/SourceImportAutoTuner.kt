@@ -1,18 +1,30 @@
 package eu.kanade.tachiyomi.ui.browse.source.browse
 
+/**
+ * Feedback tuner for independent catalog page requests.
+ *
+ * Network recovery temporarily suspends sampling. Periodic rechecks probe a
+ * neighboring concurrency limit rather than restarting at one every two minutes.
+ * Only committed pages contribute to a rate sample.
+ */
 internal class SourceImportAutoTuner(
     private val nowMillis: () -> Long,
-    private val maximum: Int = 16,
+    maximum: Int = 16,
 ) {
+    private val maximum = maximum.coerceIn(1, 16)
+
     @Volatile
     var limit = 1
         private set
+
     @Volatile
     var searching = true
         private set
+
     @Volatile
     var nextLimit: Int? = null
         private set
+
     private var bestLimit = 1
     private var bestRate = 0.0
     private var startedAt = nowMillis()
@@ -20,10 +32,11 @@ internal class SourceImportAutoTuner(
     private var firstKey = 2
     private var pages = 0
     private var items = 0L
+    private var pausedForRecovery = false
 
     @Synchronized
     fun saved(key: Int, count: Int) {
-        if (key < firstKey || nextLimit != null) return
+        if (pausedForRecovery || key < firstKey || nextLimit != null) return
         pages++
         items += count
         val now = nowMillis()
@@ -32,6 +45,7 @@ internal class SourceImportAutoTuner(
         val minimumMillis = if (searching) 8_000L else 60_000L
         if (pages < 8 || (elapsed < minimumMillis && !recheckDue)) return
         val rate = items * 1_000.0 / elapsed.coerceAtLeast(1)
+
         if (searching) {
             if (bestRate == 0.0 || rate > bestRate * 1.10) {
                 bestRate = rate
@@ -48,18 +62,50 @@ internal class SourceImportAutoTuner(
                 nextLimit = bestLimit
             }
         } else {
-            if (recheckDue || rate < bestRate * 0.65) {
+            val slowing = bestRate > 0.0 && rate < bestRate * 0.65
+            if ((recheckDue || slowing) && maximum > 1) {
+                // Anchor the comparison in the current source's performance.
+                // Rechecking from one wastes time on large catalogs.
+                bestRate = rate
+                bestLimit = limit
                 searching = true
                 settledAt = null
-                bestRate = 0.0
-                bestLimit = 1
-                nextLimit = 1
+                nextLimit = when {
+                    slowing && limit > 1 -> (limit / 2).coerceAtLeast(1)
+                    limit < maximum -> (limit * 2).coerceAtMost(maximum)
+                    else -> (limit / 2).coerceAtLeast(1)
+                }
             } else {
                 bestRate = rate
+                settledAt = now
             }
         }
+
         if (nextLimit == limit) nextLimit = null
         if (nextLimit == null) resetWindow(key + 1)
+    }
+
+    /**
+     * Pause rate measurement while requests back off or the scheduler refills.
+     * Keep the previous preferred limit so we can recover gradually.
+     */
+    @Synchronized
+    fun pauseForRecovery() {
+        pausedForRecovery = true
+        nextLimit = null
+        resetWindow(Int.MAX_VALUE)
+    }
+
+    @Synchronized
+    fun resumeAfterRecovery(firstKey: Int) {
+        pausedForRecovery = false
+        searching = false
+        nextLimit = null
+        bestLimit = limit
+        bestRate = 0.0
+        // Re-evaluate after a short stable sample, not another full two minutes.
+        settledAt = nowMillis() - 90_000L
+        resetWindow(firstKey)
     }
 
     @Synchronized
