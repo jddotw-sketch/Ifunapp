@@ -83,7 +83,7 @@ class SourceImportAutoLoaderTest {
         }
         assertEquals((1..20).toList(), saved)
         assertTrue(3_000L in pauses)
-        assertEquals(SourceImportStats.Mode.ERROR_FALLBACK, stats.snapshot().mode)
+        assertEquals(SourceImportStats.Mode.PARALLEL, stats.snapshot().mode)
         assertEquals(1, stats.snapshot().effectiveConcurrency)
     }
 
