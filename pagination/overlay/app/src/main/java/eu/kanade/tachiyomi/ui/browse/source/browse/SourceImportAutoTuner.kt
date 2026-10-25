@@ -76,8 +76,9 @@ internal class SourceImportAutoTuner(
                     else -> (limit / 2).coerceAtLeast(1)
                 }
             } else {
+                // Do not slide the recheck deadline forward after each sample.
+                // It is measured from the last settled concurrency decision.
                 bestRate = rate
-                settledAt = now
             }
         }
 
