@@ -198,7 +198,7 @@ class SourceImportLoaderTest {
     }
 
     @Test
-    fun `an error on the first page keeps later requests sequential`() = runTest {
+    fun `a transient first page error allows parallel requests after recovery` = runTest {
         var attempts = 0
         var active = 0
         var maximumActive = 0
@@ -224,7 +224,7 @@ class SourceImportLoaderTest {
         }
 
         assertEquals(listOf(1, 2, 3), saved)
-        assertEquals(1, maximumActive)
+        assertTrue(maximumActive > 1)
     }
 
     @Test
