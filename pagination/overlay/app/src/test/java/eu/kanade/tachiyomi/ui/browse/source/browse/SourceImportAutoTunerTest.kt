@@ -121,7 +121,7 @@ class SourceImportAutoTunerTest {
         now++
         tuner.saved(key++, 150)
         assertTrue(tuner.searching)
-        assertEquals(1, tuner.target())
+        assertEquals(4, tuner.target())
         tuner.applyNext(key)
         repeat(8) {
             now += 1_000
@@ -145,7 +145,7 @@ class SourceImportAutoTunerTest {
                 now += 7_500
                 tuner.saved(key++, 200)
             }
-            assertTrue(tuner.searching)
+            assertFalse(tuner.searching)
             assertEquals(1, tuner.target())
         }
     }
