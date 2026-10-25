@@ -221,7 +221,7 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                     automatic = store.config.automatic,
                     firstRequestKey = firstKey,
                     initialPageDelayMillis = store.config.recoveryDelayMillis,
-                    forceSequential = store.config.sequential,
+                    forceSequential = store.config.sequential && store.config.recoveryDelayMillis == 0L,
                     onSequentialFallback = { store.update(store.config.copy(sequential = true)) },
                 )
                 loader.runWithKeys(
