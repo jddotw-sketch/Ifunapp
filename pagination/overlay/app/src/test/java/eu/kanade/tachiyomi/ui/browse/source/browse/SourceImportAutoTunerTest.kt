@@ -67,7 +67,7 @@ class SourceImportAutoTunerTest {
     }
 
     @Test
-    fun `sustained slowdown restarts a conservative search`() {
+    fun `sustained slowdown probes nearby concurrency without restarting at one`() {
         var now = 0L
         var key = 2
         val tuner = SourceImportAutoTuner({ now })
@@ -88,7 +88,7 @@ class SourceImportAutoTunerTest {
         now += 7_500
         tuner.saved(key, 25)
         assertTrue(tuner.searching)
-        assertEquals(1, tuner.target())
+        assertEquals(2, tuner.target())
     }
 
     @Test
