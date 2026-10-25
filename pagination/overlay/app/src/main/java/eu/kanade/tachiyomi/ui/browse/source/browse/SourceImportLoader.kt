@@ -200,6 +200,7 @@ internal class SourceImportLoader(
                         concurrency = (concurrency / 2).coerceAtLeast(1)
                         recoveringFromError = true
                         successfulRecoveryPages = 0
+                        tuner?.pauseForRecovery()
                         telemetry?.mode(SourceImportStats.Mode.ERROR_FALLBACK, 1)
                         inFlight.values.forEach { it.cancel() }
                         inFlight.values.forEach { it.join() }
@@ -230,7 +231,10 @@ internal class SourceImportLoader(
                         val recoveryTarget = tuner?.limit ?: preloadPages
                         if (concurrency < recoveryTarget) concurrency++
                         successfulRecoveryPages = 0
-                        if (concurrency >= recoveryTarget) recoveringFromError = false
+                        if (concurrency >= recoveryTarget) {
+                            recoveringFromError = false
+                            tuner?.resumeAfterRecovery(nextEmitKey)
+                        }
                     }
                 }
 
