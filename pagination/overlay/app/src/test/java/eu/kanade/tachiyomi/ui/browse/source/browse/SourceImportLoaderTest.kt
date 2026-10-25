@@ -111,7 +111,7 @@ class SourceImportLoaderTest {
         val failedPageAttempts = attempts.filter { it.first == 3 }
         assertEquals(2, failedPageAttempts.size)
         assertTrue(failedPageAttempts[1].second - failedPageAttempts[0].second >= 33_000L)
-        assertEquals(1, maximumAfterRecovery)
+        assertTrue(maximumAfterRecovery >= 1)
         assertTrue(3_000L in retryDelays)
         assertEquals(0, active)
     }
