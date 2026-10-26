@@ -372,7 +372,7 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                             store.acknowledgeSaveDownloaded(partialSaveToken)
                             journal.status(SourceImportStatus.PAUSED)
                             publish(store, journal, telemetry)
-                            return@coroutineScope Result.success()
+                            return@coroutineScope
                         }
                     }
                 }
@@ -380,6 +380,7 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                 // hasNextPage=false. Commit the final partial group in that case.
                 flushPendingPages()
             }
+            if (journal.status == SourceImportStatus.PAUSED) return@coroutineScope Result.success()
             journal.status(SourceImportStatus.FINISHED)
             Result.success()
         } catch (error: CancellationException) {
