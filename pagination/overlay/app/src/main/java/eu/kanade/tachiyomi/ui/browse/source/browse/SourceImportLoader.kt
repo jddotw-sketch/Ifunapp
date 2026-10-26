@@ -24,7 +24,7 @@ internal class SourceImportLoader(
 
     private val pacing = SourceImportPacing(slowMode, initialPageDelayMillis)
     private var parallelDisabled = forceSequential
-    val preloadPages = preloadPages.coerceIn(1, 16)
+    val preloadPages = preloadPages.coerceIn(1, 64)
     private val tuner = if (automatic && !slowMode && !usesCursor) SourceImportAutoTuner(nowMillis, this.preloadPages) else null
 
     private fun retry(delayMillis: Long?) {
@@ -146,7 +146,7 @@ internal class SourceImportLoader(
         var nextEmitKey = firstKey + 1
         var concurrency = tuner?.limit ?: preloadPages
         var lookahead = (concurrency * 3).coerceAtLeast(16)
-        val maxLookahead = 128
+        val maxLookahead = 512
         var upperBound: Int? = null
         var recoveringFromError = false
         var successfulRecoveryPages = 0
