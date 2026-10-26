@@ -9,12 +9,13 @@ package eu.kanade.tachiyomi.ui.browse.source.browse
  */
 internal class SourceImportAutoTuner(
     private val nowMillis: () -> Long,
-    maximum: Int = 16,
+    maximum: Int = 64,
+    startingLimit: Int = 16,
 ) {
-    private val maximum = maximum.coerceIn(1, 16)
+    private val maximum = maximum.coerceIn(1, 64)
 
     @Volatile
-    var limit = 1
+    var limit = startingLimit.coerceIn(1, this.maximum)
         private set
 
     @Volatile
@@ -25,7 +26,7 @@ internal class SourceImportAutoTuner(
     var nextLimit: Int? = null
         private set
 
-    private var bestLimit = 1
+    private var bestLimit = limit
     private var bestRate = 0.0
     private var startedAt = nowMillis()
     private var settledAt: Long? = null
