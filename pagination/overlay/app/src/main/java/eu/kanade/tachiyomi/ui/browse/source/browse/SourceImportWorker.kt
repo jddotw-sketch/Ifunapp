@@ -284,6 +284,9 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                     val firstUncached = spool.firstUncachedKey(firstKey)
                     val downloaderDone = java.util.concurrent.atomic.AtomicBoolean(firstUncached == null)
                     val signal = Channel<Unit>(Channel.CONFLATED)
+                    // Detect an extension returning an identical catalog page under
+                    // parallel pagination before preserving it in the disk queue.
+                    val pageSignatures = mutableSetOf<Pair<String, String>>()
                     coroutineScope {
                         val downloader = launch {
                             try {
@@ -307,6 +310,12 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                                         while (importMode == "BUFFERED" && spool.cachedPageCount() >= 128) {
                                             currentCoroutineContext().ensureActive()
                                             delay(100)
+                                        }
+                                        val signature = page.mangas.firstOrNull()?.let { first ->
+                                            first.url to page.mangas.last().url
+                                        }
+                                        if (signature != null && !pageSignatures.add(signature)) {
+                                            return@runWithKeys false
                                         }
                                         val next = nextSourceImportPage(page, key, source.isEhBasedSource())
                                         spool.write(SourceImportDiskSpool.Page(key, next, page.mangas))
