@@ -328,7 +328,21 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                                 signal.trySend(Unit)
                             }
                         }
-                        if (importMode == "DOWNLOAD_ALL") downloader.join()
+                        var partialSaveToken: String? = null
+                        if (importMode == "DOWNLOAD_ALL") {
+                            while (!downloaderDone.get()) {
+                                currentCoroutineContext().ensureActive()
+                                partialSaveToken = store.saveRequestToken
+                                if (partialSaveToken != null) {
+                                    // Stop new page loads at the request boundary. The pages
+                                    // already atomically cached remain safe to import.
+                                    downloader.cancel()
+                                    downloader.join()
+                                    break
+                                }
+                                delay(200)
+                            }
+                        }
                         var readKey: Int? = firstKey
                         var previousBatchKeys = mutableListOf<Int>()
                         while (readKey != null) {
@@ -353,6 +367,13 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                             readKey = cached.next
                         }
                         if (!downloaderDone.get()) downloader.join()
+                        flushPendingPages()
+                        if (partialSaveToken != null) {
+                            store.acknowledgeSaveDownloaded(partialSaveToken)
+                            journal.status(SourceImportStatus.PAUSED)
+                            publish(store, journal, telemetry)
+                            return@coroutineScope Result.success()
+                        }
                     }
                 }
                 // Sources may terminate on an empty response rather than on
@@ -383,6 +404,11 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                 added = added,
                 existing = existing,
                 pages = journal.pages,
+                downloadedPages = journal.pages + if (store.config.importMode == "STREAM") 0 else {
+                    SourceImportDiskSpool(File(store.directory, "page-spool")).cachedPageCount()
+                },
+                importMode = store.config.importMode,
+                saveRequested = store.saveRequestToken != null,
                 canResume = journal.status != SourceImportStatus.FINISHED,
                 error = journal.error,
                 stats = telemetry?.snapshot(),
