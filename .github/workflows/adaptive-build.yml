@@ -3,12 +3,16 @@ name: Build adaptive pagination Komikku APK
 on:
   push:
     branches:
-      - komikku-smart-tuning-300k
+      - komikku-bulk-save-300k
     paths:
       - adaptive_import_patch.py
       - .github/workflows/adaptive-build.yml
       - 'pagination/overlay/**'
   workflow_dispatch:
+
+concurrency:
+  group: komikku-bulk-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -60,16 +64,16 @@ jobs:
           apk=$(find /tmp/komikku-source-import/komikku-master/app/build/outputs/apk -type f -name '*.apk' | head -n 1)
           test -n "$apk"
           ls -lh "$apk"
-          tag="komikku-adaptive16-20261024"
+          tag="komikku-bulk-save-300k-20261026"
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "$apk" --clobber
           else
-            gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title "Komikku Adaptive Pagination 16" --notes "Experimental Komikku source importer: completion-driven pagination, adaptive lookahead and a 16-request ceiling. Debug build; unit tests passed." --prerelease
+            gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title "Komikku 300K Bulk Save Optimization" --notes "Experimental Komikku source importer: 4-page batching, insert-only metadata mode, crash-safe journal and 16-request adaptive pagination. Debug build; tests passed." --prerelease
           fi
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Komikku-Adaptive-16-Debug-APK
+          name: Komikku-Bulk-Save-300K-Debug-APK
           path: /tmp/komikku-source-import/komikku-master/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
