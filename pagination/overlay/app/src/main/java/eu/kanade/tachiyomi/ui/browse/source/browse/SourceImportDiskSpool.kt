@@ -1,8 +1,6 @@
 package eu.kanade.tachiyomi.ui.browse.source.browse
 
 import eu.kanade.tachiyomi.source.model.SManga
-import java.io.DataInputStream
-import java.io.DataOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -44,15 +42,15 @@ internal class SourceImportDiskSpool(private val root: File) {
         val tmp = File(root, "page-${page.key}.tmp")
         try {
             FileOutputStream(tmp).use { stream ->
-                ObjectOutputStream(stream.buffered()).use { out ->
+                ObjectOutputStream(stream).use { out ->
                     out.writeInt(0x53495031)
                     out.writeInt(page.key)
                     out.writeInt(page.next ?: Int.MIN_VALUE)
                     out.writeInt(page.mangas.size)
                     page.mangas.forEach { out.writeObject(it) }
                     out.flush()
+                    stream.fd.sync()
                 }
-                stream.fd.sync()
             }
             java.nio.file.Files.move(
                 tmp.toPath(),
