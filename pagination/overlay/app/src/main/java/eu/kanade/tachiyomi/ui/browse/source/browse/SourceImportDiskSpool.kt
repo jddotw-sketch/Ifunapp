@@ -1,6 +1,9 @@
 package eu.kanade.tachiyomi.ui.browse.source.browse
 
 import eu.kanade.tachiyomi.source.model.SManga
+import eu.kanade.tachiyomi.source.model.UpdateStrategy
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -29,7 +32,21 @@ internal class SourceImportDiskSpool(private val root: File) {
             val next = input.readInt().takeUnless { it == Int.MIN_VALUE }
             val count = input.readInt()
             check(count in 0..1000) { "Invalid cached manga count" }
-            val mangas = List(count) { input.readObject() as SManga }
+            val mangas = List(count) {
+                SManga.create().apply {
+                    url = input.readObject() as String
+                    title = input.readObject() as String
+                    thumbnail_url = input.readObject() as String?
+                    artist = input.readObject() as String?
+                    author = input.readObject() as String?
+                    description = input.readObject() as String?
+                    genre = input.readObject() as String?
+                    status = input.readInt()
+                    initialized = input.readBoolean()
+                    update_strategy = UpdateStrategy.valueOf(input.readObject() as String)
+                    memo = Json.parseToJsonElement(input.readObject() as String).jsonObject
+                }
+            }
             return Page(key, next, mangas)
         }
     }
@@ -47,7 +64,19 @@ internal class SourceImportDiskSpool(private val root: File) {
                     out.writeInt(page.key)
                     out.writeInt(page.next ?: Int.MIN_VALUE)
                     out.writeInt(page.mangas.size)
-                    page.mangas.forEach { out.writeObject(it) }
+                    page.mangas.forEach { manga ->
+                        out.writeObject(manga.url)
+                        out.writeObject(manga.originalTitle)
+                        out.writeObject(manga.originalThumbnailUrl)
+                        out.writeObject(manga.originalArtist)
+                        out.writeObject(manga.originalAuthor)
+                        out.writeObject(manga.originalDescription)
+                        out.writeObject(manga.originalGenre)
+                        out.writeInt(manga.originalStatus)
+                        out.writeBoolean(manga.initialized)
+                        out.writeObject(manga.update_strategy.name)
+                        out.writeObject(manga.memo.toString())
+                    }
                     out.flush()
                     stream.fd.sync()
                 }
