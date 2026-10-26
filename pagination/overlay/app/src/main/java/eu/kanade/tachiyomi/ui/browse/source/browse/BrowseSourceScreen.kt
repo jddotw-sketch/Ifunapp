@@ -440,6 +440,23 @@ data class BrowseSourceScreen(
                                     }
                                 }
                             }
+                            Text("Import mode", style = MaterialTheme.typography.titleSmall)
+                            listOf(
+                                "STREAM" to "Stream & Save — original importer",
+                                "BUFFERED" to "Buffered — download ahead, save in parallel",
+                                "DOWNLOAD_ALL" to "Download All → Save — cache full catalog first",
+                                "UNBOUNDED" to "Uncapped Lookahead — disk-backed loader without saver cap",
+                            ).forEach { (value, label) ->
+                                FilterChip(
+                                    selected = screenModel.sourceImportMode == value,
+                                    onClick = { screenModel.sourceImportMode = value },
+                                    label = { Text(label) },
+                                )
+                            }
+                            Text(
+                                "Disk-backed modes require available internal storage. Concurrent requests remain limited to 16.",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
                             // KMK -->
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
