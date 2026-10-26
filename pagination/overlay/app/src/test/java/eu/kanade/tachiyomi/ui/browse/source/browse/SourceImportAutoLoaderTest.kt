@@ -19,11 +19,11 @@ class SourceImportAutoLoaderTest {
 
     @Test
     fun `scalable source reaches thirty two without losing order or counts`() = runTest {
-        val stats = SourceImportTelemetry(16, automatic = true) { testScheduler.currentTime }
+        val stats = SourceImportTelemetry(64, automatic = true) { testScheduler.currentTime }
         val saved = mutableListOf<Int>()
         var active = 0
         var maximum = 0
-        SourceImportLoader(false, false, {}, { testScheduler.currentTime }, 16, stats, automatic = true).run(
+        SourceImportLoader(false, false, {}, { testScheduler.currentTime }, 64, stats, automatic = true).run(
             request = { key ->
                 active++
                 maximum = maxOf(maximum, active)
@@ -40,18 +40,18 @@ class SourceImportAutoLoaderTest {
             true
         }
         assertEquals((1..1_500).toList(), saved)
-        assertEquals(16, maximum)
+        assertEquals(64, maximum)
         assertEquals(0, active)
-        assertEquals(16, stats.snapshot().effectiveConcurrency)
+        assertEquals(64, stats.snapshot().effectiveConcurrency)
         assertFalse(stats.snapshot().autoSearching)
     }
 
     @Test
     fun `serialized source returns to one instead of piling up requests`() = runTest {
         val mutex = Mutex()
-        val stats = SourceImportTelemetry(16, automatic = true) { testScheduler.currentTime }
+        val stats = SourceImportTelemetry(64, automatic = true) { testScheduler.currentTime }
         val saved = mutableListOf<Int>()
-        SourceImportLoader(false, false, {}, { testScheduler.currentTime }, 16, stats, automatic = true).run(
+        SourceImportLoader(false, false, {}, { testScheduler.currentTime }, 64, stats, automatic = true).run(
             request = { key -> mutex.withLock { delay(1_000); page(key, 80) } },
         ) {
             saved.add(it.mangas.single().url.toInt())
@@ -64,11 +64,11 @@ class SourceImportAutoLoaderTest {
 
     @Test
     fun `auto mode still pauses and retries HTTP errors sequentially`() = runTest {
-        val stats = SourceImportTelemetry(16, automatic = true) { testScheduler.currentTime }
+        val stats = SourceImportTelemetry(64, automatic = true) { testScheduler.currentTime }
         val saved = mutableListOf<Int>()
         val pauses = mutableListOf<Long?>()
         var failed = false
-        SourceImportLoader(false, false, pauses::add, { testScheduler.currentTime }, 16, stats, automatic = true).run(
+        SourceImportLoader(false, false, pauses::add, { testScheduler.currentTime }, 64, stats, automatic = true).run(
             request = { key ->
                 delay(1_000)
                 if (key == 12 && !failed) {
@@ -89,8 +89,8 @@ class SourceImportAutoLoaderTest {
 
     @Test
     fun `slow mode overrides automatic search`() = runTest {
-        val stats = SourceImportTelemetry(16, automatic = true) { testScheduler.currentTime }
-        SourceImportLoader(true, false, {}, { testScheduler.currentTime }, 16, stats, automatic = true).run(
+        val stats = SourceImportTelemetry(64, automatic = true) { testScheduler.currentTime }
+        SourceImportLoader(true, false, {}, { testScheduler.currentTime }, 64, stats, automatic = true).run(
             request = { key -> delay(100); page(key, 30) },
         ) { true }
         assertEquals(SourceImportStats.Mode.SLOW, stats.snapshot().mode)
@@ -104,9 +104,9 @@ class SourceImportAutoLoaderTest {
 
     @Test
     fun `cursor source keeps its real next keys with auto enabled`() = runTest {
-        val stats = SourceImportTelemetry(16, automatic = true) { testScheduler.currentTime }
+        val stats = SourceImportTelemetry(64, automatic = true) { testScheduler.currentTime }
         val keys = mutableListOf<Int>()
-        SourceImportLoader(false, true, {}, { testScheduler.currentTime }, 16, stats, automatic = true).run(
+        SourceImportLoader(false, true, {}, { testScheduler.currentTime }, 64, stats, automatic = true).run(
             request = { key ->
                 keys.add(key)
                 delay(1_000)
@@ -128,7 +128,7 @@ class SourceImportAutoLoaderTest {
     fun `stopping during tuning cancels every outstanding request`() = runTest {
         var active = 0
         val job = launch {
-            SourceImportLoader(false, false, {}, { testScheduler.currentTime }, 16, automatic = true).run(
+            SourceImportLoader(false, false, {}, { testScheduler.currentTime }, 64, automatic = true).run(
                 request = { key ->
                     active++
                     try {
