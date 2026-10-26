@@ -28,6 +28,7 @@ internal data class SourceImportConfig(
     val categoryId: Long? = null,
     val recoveryDelayMillis: Long = 0,
     val sequential: Boolean = false,
+    val importMode: String = "STREAM",
 )
 
 internal data class SourceImportItem(val id: Long, val added: Boolean)
@@ -113,6 +114,7 @@ internal class SourceImportStore private constructor(val directory: File, var co
                 categoryId = properties.getProperty("categoryId")?.toLong(),
                 recoveryDelayMillis = properties.getProperty("recoveryDelayMillis", "0").toLong().coerceIn(0, 60_000),
                 sequential = properties.getProperty("sequential", "false").toBooleanStrict(),
+                importMode = properties.getProperty("importMode", "STREAM"),
             )
             check(config.sourceId == sourceId)
             return SourceImportStore(directory, config)
@@ -142,6 +144,7 @@ internal class SourceImportStore private constructor(val directory: File, var co
                 config.categoryId?.let { setProperty("categoryId", it.toString()) }
                 setProperty("recoveryDelayMillis", config.recoveryDelayMillis.toString())
                 setProperty("sequential", config.sequential.toString())
+                setProperty("importMode", config.importMode)
             }
             val bytes = ByteArrayOutputStream().also { properties.store(it, null) }.toByteArray()
             atomicWrite(File(directory, "config"), bytes)
