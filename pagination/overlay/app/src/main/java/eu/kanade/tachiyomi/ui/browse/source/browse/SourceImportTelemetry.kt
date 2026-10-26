@@ -50,7 +50,7 @@ internal class SourceImportTelemetry(
     private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
 
-    private val limit = preloadPages.coerceIn(1, 32)
+    private val limit = preloadPages.coerceIn(1, 64)
     private val startedAt = nowMillis()
     private var endedAt: Long? = null
     private var mode = SourceImportStats.Mode.PREPARING
