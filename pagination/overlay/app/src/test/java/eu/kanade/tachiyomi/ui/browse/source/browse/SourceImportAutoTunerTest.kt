@@ -8,9 +8,27 @@ import org.junit.jupiter.api.Test
 class SourceImportAutoTunerTest {
 
     @Test
+    fun `auto begins at sixteen and can step to sixty four`() {
+        var now = 0L
+        var key = 2
+        val tuner = SourceImportAutoTuner({ now }, maximum = 64)
+        assertEquals(16, tuner.limit)
+        for (expected in listOf(16, 32, 64)) {
+            assertEquals(expected, tuner.limit)
+            repeat(8) {
+                now += 1_000
+                tuner.saved(key++, expected * 25)
+            }
+            if (tuner.hasChange()) tuner.applyNext(key)
+        }
+        assertEquals(64, tuner.limit)
+        assertFalse(tuner.searching)
+    }
+
+    @Test
     fun `keeps two when four adds less than ten percent throughput`() {
         var now = 0L
-        val tuner = SourceImportAutoTuner({ now })
+        val tuner = SourceImportAutoTuner({ now }, startingLimit = 1)
         var key = 2
         fun sample(items: Int) {
             repeat(8) {
@@ -35,8 +53,8 @@ class SourceImportAutoTunerTest {
     fun `scales to thirty two only while throughput keeps improving`() {
         var now = 0L
         var key = 2
-        val tuner = SourceImportAutoTuner({ now })
-        for (limit in listOf(1, 2, 4, 8, 16)) {
+        val tuner = SourceImportAutoTuner({ now }, startingLimit = 1)
+        for (limit in listOf(1, 2, 4, 8, 16, 32, 64)) {
             assertEquals(limit, tuner.limit)
             repeat(8) {
                 now += 1_000
@@ -44,7 +62,7 @@ class SourceImportAutoTunerTest {
             }
             if (tuner.hasChange()) tuner.applyNext(key)
         }
-        assertEquals(16, tuner.limit)
+        assertEquals(64, tuner.limit)
         assertFalse(tuner.searching)
         assertFalse(tuner.hasChange())
     }
@@ -52,7 +70,7 @@ class SourceImportAutoTunerTest {
     @Test
     fun `ignores old buffered pages and waits for enough samples`() {
         var now = 0L
-        val tuner = SourceImportAutoTuner({ now })
+        val tuner = SourceImportAutoTuner({ now }, startingLimit = 1)
         now = 8_000
         repeat(7) { tuner.saved(it + 2, 25) }
         assertFalse(tuner.hasChange())
@@ -70,7 +88,7 @@ class SourceImportAutoTunerTest {
     fun `sustained slowdown probes nearby concurrency without restarting at one`() {
         var now = 0L
         var key = 2
-        val tuner = SourceImportAutoTuner({ now })
+        val tuner = SourceImportAutoTuner({ now }, startingLimit = 1)
         repeat(2) {
             repeat(8) {
                 now += 1_000
@@ -95,7 +113,7 @@ class SourceImportAutoTunerTest {
     fun `settled speed is rechecked after two minutes even without a slowdown`() {
         var now = 0L
         var key = 2
-        val tuner = SourceImportAutoTuner({ now })
+        val tuner = SourceImportAutoTuner({ now }, startingLimit = 1)
         for (count in listOf(17, 20, 20)) {
             repeat(8) {
                 now += 1_000
@@ -130,14 +148,14 @@ class SourceImportAutoTunerTest {
         // A neighboring probe can keep the higher limit when its measured
         // throughput exceeds the baseline. It must remain within the ceiling
         // and must not restart at one after the recheck.
-        assertTrue(tuner.target() in 2..16)
+        assertTrue(tuner.target() in 2..64)
     }
 
     @Test
     fun `two minute rechecks repeat after each newly settled speed`() {
         var now = 0L
         var key = 2
-        val tuner = SourceImportAutoTuner({ now }, maximum = 1)
+        val tuner = SourceImportAutoTuner({ now }, maximum = 1, startingLimit = 1)
         repeat(3) {
             repeat(8) {
                 now += 1_000
