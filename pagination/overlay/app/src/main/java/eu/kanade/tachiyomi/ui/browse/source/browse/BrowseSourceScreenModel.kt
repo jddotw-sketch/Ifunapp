@@ -499,7 +499,7 @@ open class BrowseSourceScreenModel(
                     slowMode = slowMode,
                     importMode = sourceImportMode,
                     automatic = sourceImportAutomatic,
-                    preloadPages = if (sourceImportAutomatic) 16 else sourceImportPreloadPages.coerceIn(1, 16),
+                    preloadPages = if (sourceImportAutomatic) 64 else sourceImportPreloadPages.coerceIn(1, 64),
                 ),
             )
         }
