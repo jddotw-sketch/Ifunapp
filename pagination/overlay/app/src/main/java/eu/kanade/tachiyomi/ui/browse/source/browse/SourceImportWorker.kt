@@ -22,6 +22,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
@@ -250,32 +251,100 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                     saveBatch(plans)
                     pendingPages.clear()
                 }
-                loader.runWithKeys(
-                    request = { key ->
-                        when (store.config.listing) {
-                            "POPULAR" -> source.getPopularManga(key)
-                            "LATEST" -> source.getLatestUpdates(key)
-                            "SEARCH" -> source.getSearchManga(key, store.config.query, filters)
-                            else -> error("Invalid saved listing")
-                        }
-                    },
-                ) { key, page ->
+                suspend fun requestCatalogPage(key: Int) = when (store.config.listing) {
+                    "POPULAR" -> source.getPopularManga(key)
+                    "LATEST" -> source.getLatestUpdates(key)
+                    "SEARCH" -> source.getSearchManga(key, store.config.query, filters)
+                    else -> error("Invalid saved listing")
+                }
+                suspend fun processPage(key: Int, next: Int?, pageMangas: List<eu.kanade.tachiyomi.source.model.SManga>): Boolean {
                     currentCoroutineContext().ensureActive()
-                    val next = nextSourceImportPage(page, key, source.isEhBasedSource())
                     val mangas = Injekt.get<NetworkToLocalManga>()(
-                        page.mangas.distinctBy { it.url }.map { it.toDomainManga(sourceId) },
+                        pageMangas.distinctBy { it.url }.map { it.toDomainManga(sourceId) },
                         updateInfo = false,
                     )
                     val plan = pageTracker.prepare(key, next, mangas.map { SourceImportItem(it.id, !it.favorite) })
                     if (plan == null) {
                         flushPendingPages()
-                        return@runWithKeys false
+                        return false
                     }
                     pendingPages.add(plan)
                     if (pendingPages.size >= 4 || pendingPages.sumOf { it.items.size } >= 100 || next == null) {
                         flushPendingPages()
                     }
-                    true
+                    return true
+                }
+                val importMode = store.config.importMode
+                if (importMode == "STREAM") {
+                    loader.runWithKeys(::requestCatalogPage) { key, page ->
+                        processPage(key, nextSourceImportPage(page, key, source.isEhBasedSource()), page.mangas)
+                    }
+                } else {
+                    val spool = SourceImportDiskSpool(File(store.directory, "page-spool"))
+                    val firstUncached = spool.firstUncachedKey(firstKey)
+                    val downloaderDone = java.util.concurrent.atomic.AtomicBoolean(firstUncached == null)
+                    val signal = Channel<Unit>(Channel.CONFLATED)
+                    coroutineScope {
+                        val downloader = launch {
+                            try {
+                                if (firstUncached != null) {
+                                    val downloadLoader = SourceImportLoader(
+                                        slowMode = store.config.slowMode,
+                                        usesCursor = source.isEhBasedSource(),
+                                        onRetry = { delayMillis ->
+                                            retrying = delayMillis != null
+                                            if (delayMillis != null) store.update(store.config.copy(recoveryDelayMillis = delayMillis))
+                                        },
+                                        preloadPages = store.config.preloadPages,
+                                        telemetry = telemetry,
+                                        automatic = store.config.automatic,
+                                        firstRequestKey = firstUncached,
+                                        initialPageDelayMillis = store.config.recoveryDelayMillis,
+                                        forceSequential = store.config.sequential && store.config.recoveryDelayMillis == 0L,
+                                        onSequentialFallback = { store.update(store.config.copy(sequential = true)) },
+                                    )
+                                    downloadLoader.runWithKeys(::requestCatalogPage) { key, page ->
+                                        while (importMode == "BUFFERED" && spool.cachedPageCount() >= 128) {
+                                            currentCoroutineContext().ensureActive()
+                                            delay(100)
+                                        }
+                                        val next = nextSourceImportPage(page, key, source.isEhBasedSource())
+                                        spool.write(SourceImportDiskSpool.Page(key, next, page.mangas))
+                                        signal.trySend(Unit)
+                                        true
+                                    }
+                                }
+                            } finally {
+                                downloaderDone.set(true)
+                                signal.trySend(Unit)
+                            }
+                        }
+                        if (importMode == "DOWNLOAD_ALL") downloader.join()
+                        var readKey: Int? = firstKey
+                        var previousBatchKeys = mutableListOf<Int>()
+                        while (readKey != null) {
+                            currentCoroutineContext().ensureActive()
+                            val cached = spool.read(readKey)
+                            if (cached == null) {
+                                if (downloaderDone.get()) break
+                                signal.receive()
+                                continue
+                            }
+                            val keepGoing = processPage(cached.key, cached.next, cached.mangas)
+                            previousBatchKeys.add(cached.key)
+                            // Discard only pages whose ids are committed in the journal.
+                            if (pendingPages.isEmpty()) {
+                                spool.remove(previousBatchKeys)
+                                previousBatchKeys.clear()
+                            }
+                            if (!keepGoing) {
+                                downloader.cancel()
+                                break
+                            }
+                            readKey = cached.next
+                        }
+                        if (!downloaderDone.get()) downloader.join()
+                    }
                 }
                 // Sources may terminate on an empty response rather than on
                 // hasNextPage=false. Commit the final partial group in that case.
