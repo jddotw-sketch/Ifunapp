@@ -645,6 +645,8 @@ data class BrowseSourceScreen(
                     Column {
                         Text(stringResource(KMR.strings.source_import_all_progress, count))
                         Text(stringResource(KMR.strings.source_import_existing, state.sourceImportExistingCount))
+                        Text("Pages downloaded: ${state.sourceImportDownloadedPages}")
+                        Text("Pages saved: ${state.sourceImportSavedPages}")
                         Text(stringResource(KMR.strings.source_import_background_summary))
                         state.sourceImportRetryDelayMillis?.let { retryDelay ->
                             Text(stringResource(KMR.strings.source_import_retrying, retryDelay / 1_000))
@@ -652,8 +654,18 @@ data class BrowseSourceScreen(
                     }
                 },
                 confirmButton = {
-                    TextButton(onClick = screenModel::stopSourceImport) {
+                    Column {
+                        if (state.sourceImportModeRunning == "DOWNLOAD_ALL") {
+                            TextButton(
+                                onClick = screenModel::saveDownloadedSourceImport,
+                                enabled = !state.sourceImportSaveRequested && state.sourceImportDownloadedPages > state.sourceImportSavedPages,
+                            ) {
+                                Text(if (state.sourceImportSaveRequested) "Saving requested…" else "Save Downloaded Pages")
+                            }
+                        }
+                        TextButton(onClick = screenModel::stopSourceImport) {
                         Text(stringResource(KMR.strings.source_import_pause))
+                        }
                     }
                 },
                 dismissButton = {
