@@ -454,7 +454,7 @@ data class BrowseSourceScreen(
                                 )
                             }
                             Text(
-                                "Disk-backed modes require available internal storage. Concurrent requests remain limited to 16.",
+                                "Disk-backed modes require available internal storage. Concurrent requests remain limited to 64.",
                                 style = MaterialTheme.typography.bodySmall,
                             )
                             // KMK -->
@@ -493,12 +493,12 @@ data class BrowseSourceScreen(
                                 style = MaterialTheme.typography.bodySmall,
                             )
                             if (!screenModel.sourceImportAutomatic) {
-                                Text(stringResource(KMR.strings.source_import_preload_value, screenModel.sourceImportPreloadPages.coerceIn(1, 16)))
+                                Text(stringResource(KMR.strings.source_import_preload_value, screenModel.sourceImportPreloadPages.coerceIn(1, 64)))
                                 Slider(
-                                    value = screenModel.sourceImportPreloadPages.coerceIn(1, 16).toFloat(),
-                                    onValueChange = { screenModel.sourceImportPreloadPages = it.roundToInt().coerceIn(1, 32) },
-                                    valueRange = 1f..16f,
-                                    steps = 14,
+                                    value = screenModel.sourceImportPreloadPages.coerceIn(1, 64).toFloat(),
+                                    onValueChange = { screenModel.sourceImportPreloadPages = it.roundToInt().coerceIn(1, 64) },
+                                    valueRange = 1f..64f,
+                                    steps = 62,
                                 )
                                 Text(
                                     stringResource(KMR.strings.source_import_preload_summary),
