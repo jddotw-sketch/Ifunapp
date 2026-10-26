@@ -161,6 +161,9 @@ open class BrowseSourceScreenModel(
                         sourceImportCanResume = background.canResume && !background.active,
                         sourceImportHasCheckpoint = background.id != null || background.status == SourceImportStatus.FAILED,
                         sourceImportSavedPages = background.pages,
+                        sourceImportDownloadedPages = background.downloadedPages,
+                        sourceImportModeRunning = background.importMode,
+                        sourceImportSaveRequested = background.saveRequested,
                         sourceImportResult = when (background.status) {
                             SourceImportStatus.FINISHED -> SourceImportResult(background.added, existingCount = background.existing)
                             SourceImportStatus.PAUSED -> SourceImportResult(background.added, existingCount = background.existing, stopped = true)
@@ -528,6 +531,10 @@ open class BrowseSourceScreenModel(
         mutableState.update { it.copy(sourceImportResult = null) }
     }
 
+    fun saveDownloadedSourceImport() {
+        sourceImportAction { SourceImportManager.saveDownloaded(sourceId) }
+    }
+
     fun stopSourceImport() {
         sourceImportAction { SourceImportManager.pause(sourceId) }
     }
@@ -637,6 +644,9 @@ open class BrowseSourceScreenModel(
         val sourceImportHasCheckpoint: Boolean = false,
         val sourceImportShowProgress: Boolean = true,
         val sourceImportSavedPages: Int = 0,
+        val sourceImportDownloadedPages: Int = 0,
+        val sourceImportModeRunning: String = "STREAM",
+        val sourceImportSaveRequested: Boolean = false,
         val sourceImportRestartRequested: Boolean = false,
         // KMK <--
         // SY -->
