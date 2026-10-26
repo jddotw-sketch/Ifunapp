@@ -204,6 +204,22 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                 existing = journal.existing
                 publish(store, journal, telemetry)
             }
+            suspend fun saveBatch(plans: List<SourceImportPlan>) {
+                val allItems = plans.flatMap(SourceImportPlan::items)
+                importManga.await(allItems.map(SourceImportItem::id), category.id) { _, _ -> }
+                // A replay after a crash is safe: the database operation is idempotent,
+                // and the journal is only advanced after the database transaction.
+                withContext(NonCancellable) { journal.commitBatch() }
+                telemetry.items(allItems.count { it.added }, allItems.count { !it.added })
+                added = journal.added
+                existing = journal.existing
+                publish(store, journal, telemetry)
+            }
+            journal.pendingBatch?.let { plans ->
+                telemetry.saving()
+                saveBatch(plans)
+                telemetry.saved(true)
+            }
             journal.pending?.let { plan ->
                 telemetry.saving()
                 savePlan(plan)
@@ -226,6 +242,14 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                     forceSequential = store.config.sequential && store.config.recoveryDelayMillis == 0L,
                     onSequentialFallback = { store.update(store.config.copy(sequential = true)) },
                 )
+                val pendingPages = mutableListOf<SourceImportPlan>()
+                suspend fun flushPendingPages() {
+                    if (pendingPages.isEmpty()) return
+                    val plans = pendingPages.toList()
+                    journal.planBatch(plans)
+                    saveBatch(plans)
+                    pendingPages.clear()
+                }
                 loader.runWithKeys(
                     request = { key ->
                         when (store.config.listing) {
@@ -243,9 +267,14 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                         updateInfo = false,
                     )
                     val plan = pageTracker.prepare(key, next, mangas.map { SourceImportItem(it.id, !it.favorite) })
-                        ?: return@runWithKeys false
-                    journal.plan(plan)
-                    savePlan(plan)
+                    if (plan == null) {
+                        flushPendingPages()
+                        return@runWithKeys false
+                    }
+                    pendingPages.add(plan)
+                    if (pendingPages.size >= 4 || pendingPages.sumOf { it.items.size } >= 100 || next == null) {
+                        flushPendingPages()
+                    }
                     true
                 }
             }
