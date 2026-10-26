@@ -27,6 +27,8 @@ class SourcePreferences(
 
     fun sourceImportPreloadPages(sourceId: Long) = preferenceStore.getInt("source_import_preload_$sourceId", 8)
 
+    fun sourceImportMode(sourceId: Long) = preferenceStore.getString("source_import_mode_$sourceId", "STREAM")
+
     fun sourceImportAutomatic(sourceId: Long) = preferenceStore.getBoolean("source_import_automatic_$sourceId", true)
 
     fun incognitoExtensions() = preferenceStore.getStringSet("incognito_extensions", emptySet())
