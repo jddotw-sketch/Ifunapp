@@ -191,16 +191,18 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                 val baseAdded = journal.added
                 val baseExisting = journal.existing
                 importManga.await(plan.items.map { it.id }, category.id) { batchAdded, batchExisting ->
-                    val batch = plan.items.drop(processed).take(batchAdded + batchExisting)
-                    processed += batch.size
+                    val count = batchAdded + batchExisting
+                    val nextProcessed = processed + count
+                    val batch = plan.items.subList(processed, nextProcessed)
+                    processed = nextProcessed
                     telemetry.items(batch.count { it.added }, batch.count { !it.added })
-                    added = baseAdded + plan.items.take(processed).count { it.added }
+                    added = baseAdded + plan.items.subList(0, processed).count { it.added }
                     existing = baseExisting + processed - (added - baseAdded)
-                    publish(store, journal, telemetry)
                 }
                 withContext(NonCancellable) { journal.commit() }
                 added = journal.added
                 existing = journal.existing
+                publish(store, journal, telemetry)
             }
             journal.pending?.let { plan ->
                 telemetry.saving()
@@ -238,6 +240,7 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                     val next = nextSourceImportPage(page, key, source.isEhBasedSource())
                     val mangas = Injekt.get<NetworkToLocalManga>()(
                         page.mangas.distinctBy { it.url }.map { it.toDomainManga(sourceId) },
+                        updateInfo = false,
                     )
                     val plan = pageTracker.prepare(key, next, mangas.map { SourceImportItem(it.id, !it.favorite) })
                         ?: return@runWithKeys false
