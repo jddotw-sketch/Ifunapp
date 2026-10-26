@@ -51,6 +51,22 @@ internal enum class SourceImportStatus { QUEUED, RUNNING, PAUSED, FAILED, FINISH
 internal class SourceImportStore private constructor(val directory: File, var config: SourceImportConfig) {
     val pauseRequested get() = File(directory, "pause").exists()
 
+    // Durable command: a button press may arrive while the worker is downloading
+    // or restarting. The token only clears after its available pages are committed.
+    fun requestSaveDownloaded() {
+        atomicWrite(File(directory, "save-request"), UUID.randomUUID().toString().toByteArray())
+    }
+
+    val saveRequestToken: String?
+        get() = File(directory, "save-request").takeIf(File::exists)?.readText()?.trim()?.ifEmpty { null }
+
+    fun acknowledgeSaveDownloaded(token: String) {
+        val request = File(directory, "save-request")
+        if (request.exists() && request.readText().trim() == token) {
+            check(request.delete()) { "Could not acknowledge save request" }
+        }
+    }
+
     fun pause() {
         FileOutputStream(File(directory, "pause")).use { it.fd.sync() }
     }
@@ -82,7 +98,10 @@ internal class SourceImportStore private constructor(val directory: File, var co
                 null
             } ?: return
             lock.use {
-                listOf("config", "config.tmp", "pause", "journal").forEach { File(directory, it).delete() }
+                listOf("config", "config.tmp", "pause", "journal", "save-request", "save-request.tmp").forEach {
+                    File(directory, it).delete()
+                }
+                File(directory, "page-spool").deleteRecursively()
             }
         }
         File(directory, "lock").delete()
