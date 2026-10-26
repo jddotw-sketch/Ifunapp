@@ -277,6 +277,9 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                     }
                     true
                 }
+                // Sources may terminate on an empty response rather than on
+                // hasNextPage=false. Commit the final partial group in that case.
+                flushPendingPages()
             }
             journal.status(SourceImportStatus.FINISHED)
             Result.success()
