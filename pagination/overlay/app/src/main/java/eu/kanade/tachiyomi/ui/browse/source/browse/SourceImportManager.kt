@@ -24,6 +24,9 @@ internal data class SourceImportBackgroundState(
     val added: Int = 0,
     val existing: Int = 0,
     val pages: Int = 0,
+    val downloadedPages: Int = 0,
+    val importMode: String = "STREAM",
+    val saveRequested: Boolean = false,
     val canResume: Boolean = false,
     val error: String? = null,
     val stats: SourceImportStats? = null,
@@ -51,6 +54,9 @@ internal object SourceImportManager {
                     added = journal.added,
                     existing = journal.existing,
                     pages = journal.pages,
+                    downloadedPages = journal.pages + SourceImportDiskSpool(File(store.directory, "page-spool")).cachedPageCount(),
+                    importMode = store.config.importMode,
+                    saveRequested = store.saveRequestToken != null,
                     canResume = journal.status != SourceImportStatus.FINISHED,
                     error = journal.error,
                 )
@@ -80,6 +86,13 @@ internal object SourceImportManager {
         store.resume()
         state(sourceId).value = state(sourceId).value.copy(status = SourceImportStatus.QUEUED, error = null, stats = null)
         enqueue(store.config, ExistingWorkPolicy.REPLACE)
+    }
+
+    suspend fun saveDownloaded(sourceId: Long) = commandMutex.withLock {
+        val store = SourceImportStore.current(context.filesDir, sourceId) ?: return@withLock
+        if (store.config.importMode != "DOWNLOAD_ALL") return@withLock
+        store.requestSaveDownloaded()
+        state(sourceId).value = state(sourceId).value.copy(saveRequested = true)
     }
 
     suspend fun pause(sourceId: Long) = commandMutex.withLock {
