@@ -160,6 +160,9 @@ internal class SourceImportJournal(private val file: File, repair: Boolean = fal
     var pending: SourceImportPlan? = null
         private set
     @Volatile
+    var pendingBatch: List<SourceImportPlan>? = null
+        private set
+    @Volatile
     var nextKey: Int? = 1
         private set
     @Volatile
@@ -205,7 +208,7 @@ internal class SourceImportJournal(private val file: File, repair: Boolean = fal
     }
 
     fun plan(value: SourceImportPlan) {
-        check(pending == null && value.key == nextKey)
+        check(pending == null && pendingBatch == null && value.key == nextKey)
         check(value.items.size <= 10_000 && value.items.map { it.id }.distinct().size == value.items.size)
         check(value.items.none { it.id in seenIds })
         append {
@@ -221,6 +224,36 @@ internal class SourceImportJournal(private val file: File, repair: Boolean = fal
     fun commit() {
         check(pending != null)
         append { writeByte(2); writeInt(pending!!.key) }
+    }
+
+    // Record types 4 and 5 are compatible with existing single-page journal
+    // records. One durable plan and one durable commit cover multiple pages.
+    fun planBatch(plans: List<SourceImportPlan>) {
+        check(pending == null && pendingBatch == null && plans.isNotEmpty() && plans.size <= 8)
+        check(plans.first().key == nextKey)
+        check(plans.zipWithNext().all { (a, b) -> a.nextKey == b.key })
+        val ids = plans.flatMap { it.items.map(SourceImportItem::id) }
+        check(ids.size <= 10_000 && ids.distinct().size == ids.size && ids.none { it in seenIds })
+        append {
+            writeByte(4)
+            writeInt(plans.size)
+            plans.forEach { value ->
+                writeInt(value.key)
+                writeBoolean(value.nextKey != null)
+                value.nextKey?.let(::writeInt)
+                writeInt(value.items.size)
+                value.items.forEach { writeLong(it.id); writeBoolean(it.added) }
+            }
+        }
+    }
+
+    fun commitBatch() {
+        val plans = checkNotNull(pendingBatch)
+        append {
+            writeByte(5)
+            writeInt(plans.first().key)
+            writeInt(plans.size)
+        }
     }
 
     fun status(value: SourceImportStatus, message: String? = null) {
@@ -248,7 +281,7 @@ internal class SourceImportJournal(private val file: File, repair: Boolean = fal
                     val key = input.readInt()
                     val next = if (input.readBoolean()) input.readInt() else null
                     val count = input.readInt()
-                    check(count in 0..10_000 && pending == null && key == nextKey)
+                    check(count in 0..10_000 && pending == null && pendingBatch == null && key == nextKey)
                     val items = List(count) { SourceImportItem(input.readLong(), input.readBoolean()) }
                     check(items.map { it.id }.distinct().size == count && items.none { it.id in seenIds })
                     pending = SourceImportPlan(key, next, items)
@@ -266,6 +299,34 @@ internal class SourceImportJournal(private val file: File, repair: Boolean = fal
                 3 -> {
                     status = SourceImportStatus.valueOf(input.readUTF())
                     error = input.readUTF().ifEmpty { null }
+                }
+                4 -> {
+                    val count = input.readInt()
+                    check(count in 1..8 && pending == null && pendingBatch == null)
+                    val plans = List(count) {
+                        val key = input.readInt()
+                        val next = if (input.readBoolean()) input.readInt() else null
+                        val size = input.readInt()
+                        check(size in 0..10_000)
+                        val items = List(size) { SourceImportItem(input.readLong(), input.readBoolean()) }
+                        SourceImportPlan(key, next, items)
+                    }
+                    val ids = plans.flatMap { it.items.map(SourceImportItem::id) }
+                    check(plans.first().key == nextKey)
+                    check(plans.zipWithNext().all { (a, b) -> a.nextKey == b.key })
+                    check(ids.size <= 10_000 && ids.distinct().size == ids.size && ids.none { it in seenIds })
+                    pendingBatch = plans
+                }
+                5 -> {
+                    val plans = checkNotNull(pendingBatch)
+                    check(input.readInt() == plans.first().key && input.readInt() == plans.size)
+                    val items = plans.flatMap(SourceImportPlan::items)
+                    added += items.count { it.added }
+                    existing += items.count { !it.added }
+                    seenIds.addAll(items.map(SourceImportItem::id))
+                    nextKey = plans.last().nextKey
+                    pendingBatch = null
+                    pages += plans.size
                 }
                 else -> error("Unsupported import checkpoint record")
             }
