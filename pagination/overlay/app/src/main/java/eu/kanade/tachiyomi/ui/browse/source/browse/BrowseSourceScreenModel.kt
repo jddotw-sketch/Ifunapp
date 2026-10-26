@@ -135,6 +135,7 @@ open class BrowseSourceScreenModel(
 
     var sourceImportPreloadPages by sourcePreferences.sourceImportPreloadPages(sourceId).asState(screenModelScope)
     var sourceImportAutomatic by sourcePreferences.sourceImportAutomatic(sourceId).asState(screenModelScope)
+    var sourceImportMode by sourcePreferences.sourceImportMode(sourceId).asState(screenModelScope)
 
     // SY -->
     val ehentaiBrowseDisplayMode by exhPreferences.enhancedEHentaiView().asState(screenModelScope)
@@ -496,6 +497,7 @@ open class BrowseSourceScreenModel(
                     query = listing.query.orEmpty(),
                     filters = filterSerializer.serialize(listing.filters).toString(),
                     slowMode = slowMode,
+                    importMode = sourceImportMode,
                     automatic = sourceImportAutomatic,
                     preloadPages = if (sourceImportAutomatic) 16 else sourceImportPreloadPages.coerceIn(1, 16),
                 ),
