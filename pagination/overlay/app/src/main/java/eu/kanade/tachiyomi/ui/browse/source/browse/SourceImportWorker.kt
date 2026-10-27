@@ -10,6 +10,7 @@ import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.ui.main.MainActivity
 import eu.kanade.tachiyomi.util.system.notificationBuilder
@@ -267,11 +268,21 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                     saveBatch(plans)
                     pendingPages.clear()
                 }
-                suspend fun requestCatalogPage(key: Int) = when (store.config.listing) {
-                    "POPULAR" -> source.getPopularManga(key)
-                    "LATEST" -> source.getLatestUpdates(key)
-                    "SEARCH" -> source.getSearchManga(key, store.config.query, filters)
-                    else -> error("Invalid saved listing")
+                suspend fun requestCatalogPage(key: Int): MangasPage {
+                    val page = when (store.config.listing) {
+                        "POPULAR" -> source.getPopularManga(key)
+                        "LATEST" -> source.getLatestUpdates(key)
+                        "SEARCH" -> source.getSearchManga(key, store.config.query, filters)
+                        else -> error("Invalid saved listing")
+                    }
+                    if (!source.isEhBasedSource() && !page.hasNextPage &&
+                        key < store.config.minimumPages && page.mangas.isNotEmpty()
+                    ) {
+                        // Do not trust an early false terminal marker when the user
+                        // knows the source has more pages. Preserve the real results.
+                        return MangasPage(page.mangas, true)
+                    }
+                    return page
                 }
                 suspend fun processPage(key: Int, next: Int?, pageMangas: List<eu.kanade.tachiyomi.source.model.SManga>): Boolean {
                     currentCoroutineContext().ensureActive()
@@ -397,6 +408,9 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                 flushPendingPages()
             }
             if (journal.status == SourceImportStatus.PAUSED) return@coroutineScope Result.success()
+            if (store.config.minimumPages > 0 && journal.pages < store.config.minimumPages) {
+                error("Only ${journal.pages} of the expected ${store.config.minimumPages} catalog pages were saved. Resume after checking the source.")
+            }
             journal.status(SourceImportStatus.FINISHED)
             Result.success()
         } catch (error: CancellationException) {
