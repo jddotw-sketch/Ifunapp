@@ -523,7 +523,9 @@ open class BrowseSourceScreenModel(
         }
     }
 
-    fun resumeSourceImport() = sourceImportAction { SourceImportManager.resume(sourceId) }
+    fun resumeSourceImport() = sourceImportAction {
+        SourceImportManager.resume(sourceId, sourceImportMinimumPages.toIntOrNull())
+    }
 
     fun hideSourceImportProgress() {
         mutableState.update { it.copy(sourceImportShowProgress = false) }
