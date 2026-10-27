@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test
 class SourceImportAutoTunerTest {
 
     @Test
-    fun `auto tests lower than sixteen and refines by one around the better rate`() {
+    fun `auto tests upward first and then downward without single step probes`() {
         var now = 0L
         var key = 2
         val tuner = SourceImportAutoTuner({ now }, maximum = 64)
@@ -20,16 +20,16 @@ class SourceImportAutoTunerTest {
         }
         assertEquals(16, tuner.limit)
         sample(25)
+        assertEquals(32, tuner.target())
+        tuner.applyNext(key)
+        assertEquals(32, tuner.limit)
+        sample(10)
         assertEquals(8, tuner.target())
         tuner.applyNext(key)
         assertEquals(8, tuner.limit)
         sample(10)
-        // Eight was slower, so compare the neighboring setting immediately
-        // above the previous winner, not another exponential jump.
-        assertEquals(17, tuner.target())
-        tuner.applyNext(key)
-        sample(10)
-        assertTrue(tuner.target() in 1..64)
+        assertFalse(tuner.searching)
+        assertEquals(16, tuner.target())
     }
 
 

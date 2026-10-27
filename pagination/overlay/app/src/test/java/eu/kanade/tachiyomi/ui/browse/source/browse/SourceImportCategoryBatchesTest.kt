@@ -5,17 +5,17 @@ import org.junit.jupiter.api.Test
 
 class SourceImportCategoryBatchesTest {
     @Test
-    fun `exactly five hundred ids stay in first category`() {
-        val groups = categoryBatches((1L..500L).toList(), 0)
+    fun `exactly five thousand ids stay in first category`() {
+        val groups = categoryBatches((1L..5_000L).toList(), 0)
         assertEquals(1, groups.size)
         assertEquals(0, groups.single().categoryIndex)
-        assertEquals(500, groups.single().ids.size)
+        assertEquals(5_000, groups.single().ids.size)
     }
 
     @Test
-    fun `partial batch crosses the five hundred boundary without losing ids`() {
+    fun `partial batch crosses the five thousand boundary without losing ids`() {
         val ids = (1L..140L).toList()
-        val groups = categoryBatches(ids, 470)
+        val groups = categoryBatches(ids, 4_970)
         assertEquals(listOf(0, 1), groups.map { it.categoryIndex })
         assertEquals(listOf(30, 110), groups.map { it.ids.size })
         assertEquals(ids, groups.flatMap { it.ids })
@@ -27,9 +27,9 @@ class SourceImportCategoryBatchesTest {
     @Test
     fun `resume at twenty eight thousand nine hundred stays deterministic`() {
         val ids = (1L..250L).toList()
-        val groups = categoryBatches(ids, 28_900)
-        assertEquals(listOf(57, 58), groups.map { it.categoryIndex })
+        val groups = categoryBatches(ids, 29_900)
+        assertEquals(listOf(5, 6), groups.map { it.categoryIndex })
         assertEquals(listOf(100, 150), groups.map { it.ids.size })
-        assertEquals(groups, categoryBatches(ids, 28_900))
+        assertEquals(groups, categoryBatches(ids, 29_900))
     }
 }
