@@ -3,7 +3,7 @@ name: Build adaptive pagination Komikku APK
 on:
   push:
     branches:
-      - komikku-64-auto16
+      - komikku-reliable-500-autotune
     paths:
       - adaptive_import_patch.py
       - .github/workflows/adaptive-build.yml
@@ -64,16 +64,16 @@ jobs:
           apk=$(find /tmp/komikku-source-import/komikku-master/app/build/outputs/apk -type f -name '*.apk' | head -n 1)
           test -n "$apk"
           ls -lh "$apk"
-          tag="komikku-64-auto16-20261026"
+          tag="komikku-reliable-500-autotune-20261026"
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "$apk" --clobber
           else
-            gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title "Komikku 300K Four Modes - 64 Requests" --notes "Experimental Komikku source importer: 4-page batching, insert-only metadata mode, crash-safe journal and 64-request adaptive pagination. Debug build; tests passed." --prerelease
+            gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title "Komikku Reliable Pagination 500-Entry Categories" --notes "Experimental Komikku source importer: 4-page batching, insert-only metadata mode, crash-safe journal and 64-request adaptive pagination. Debug build; tests passed." --prerelease
           fi
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Komikku-64-Auto16-Debug-APK
+          name: Komikku-Reliable-500-AutoTune-APK
           path: /tmp/komikku-source-import/komikku-master/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
