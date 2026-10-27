@@ -20,6 +20,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -440,6 +441,15 @@ data class BrowseSourceScreen(
                                     }
                                 }
                             }
+                            OutlinedTextField(
+                                value = screenModel.sourceImportMinimumPages,
+                                onValueChange = { value ->
+                                    screenModel.sourceImportMinimumPages = value.filter(Char::isDigit).take(6)
+                                },
+                                label = { Text("Minimum expected pages (0 = automatic)") },
+                                supportingText = { Text("Enter 2188 for Pururin to detect premature termination") },
+                                singleLine = true,
+                            )
                             Text("Import mode", style = MaterialTheme.typography.titleSmall)
                             listOf(
                                 "STREAM" to "Stream & Save — original importer",
