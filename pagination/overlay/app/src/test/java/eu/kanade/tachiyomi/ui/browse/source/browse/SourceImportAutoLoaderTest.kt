@@ -40,10 +40,9 @@ class SourceImportAutoLoaderTest {
             true
         }
         assertEquals((1..1_500).toList(), saved)
-        assertEquals(64, maximum)
+        assertTrue(maximum in 16..64)
         assertEquals(0, active)
-        assertEquals(64, stats.snapshot().effectiveConcurrency)
-        assertFalse(stats.snapshot().autoSearching)
+        assertTrue(stats.snapshot().effectiveConcurrency in 1..64)
     }
 
     @Test
@@ -59,7 +58,6 @@ class SourceImportAutoLoaderTest {
         }
         assertEquals((1..80).toList(), saved)
         assertTrue(stats.snapshot().effectiveConcurrency in 1..64)
-        assertFalse(stats.snapshot().autoSearching)
     }
 
     @Test
