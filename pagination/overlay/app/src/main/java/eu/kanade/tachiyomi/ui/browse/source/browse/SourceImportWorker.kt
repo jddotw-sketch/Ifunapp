@@ -187,11 +187,27 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                 }
             }
             val importManga = Injekt.get<ImportMangaToLibrary>()
+            suspend fun saveInSplitCategories(ids: List<Long>, completedBefore: Int) {
+                val allCategories = getCategories.await().filterNot { it.isSystemCategory }.toMutableList()
+                for (group in categoryBatches(ids, completedBefore)) {
+                    val name = sourceImportCategoryName(source.name, group.categoryIndex)
+                    val target = allCategories.firstOrNull { it.name.equals(name, true) }
+                        ?: when (val result = Injekt.get<CreateCategoryWithName>().await(name)) {
+                            is CreateCategoryWithName.Result.Success -> getCategories.await()
+                                .first { it.name.equals(name, true) }.also(allCategories::add)
+                            is CreateCategoryWithName.Result.InternalError -> throw result.error
+                        }
+                    importManga.await(group.ids, target.id) { _, _ -> }
+                }
+            }
             suspend fun savePlan(plan: SourceImportPlan) {
                 var processed = 0
                 val baseAdded = journal.added
                 val baseExisting = journal.existing
-                importManga.await(plan.items.map { it.id }, category.id) { batchAdded, batchExisting ->
+                saveInSplitCategories(plan.items.map { it.id }, journal.added + journal.existing)
+                val batchAdded = plan.items.count { it.added }
+                val batchExisting = plan.items.size - batchAdded
+                run {
                     val count = batchAdded + batchExisting
                     val nextProcessed = processed + count
                     val batch = plan.items.subList(processed, nextProcessed)
@@ -207,7 +223,7 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
             }
             suspend fun saveBatch(plans: List<SourceImportPlan>) {
                 val allItems = plans.flatMap(SourceImportPlan::items)
-                importManga.await(allItems.map(SourceImportItem::id), category.id) { _, _ -> }
+                saveInSplitCategories(allItems.map(SourceImportItem::id), journal.added + journal.existing)
                 // A replay after a crash is safe: the database operation is idempotent,
                 // and the journal is only advanced after the database transaction.
                 withContext(NonCancellable) { journal.commitBatch() }
@@ -266,7 +282,7 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                     val plan = pageTracker.prepare(key, next, mangas.map { SourceImportItem(it.id, !it.favorite) })
                     if (plan == null) {
                         flushPendingPages()
-                        return false
+                        error("Source returned a duplicate or empty page at key $key; paused for safe resume")
                     }
                     pendingPages.add(plan)
                     if (pendingPages.size >= 4 || pendingPages.sumOf { it.items.size } >= 100 || next == null) {
@@ -315,7 +331,7 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                                             first.url to page.mangas.last().url
                                         }
                                         if (signature != null && !pageSignatures.add(signature)) {
-                                            return@runWithKeys false
+                                            error("Repeated source page at $key; import stopped for safe recovery")
                                         }
                                         val next = nextSourceImportPage(page, key, source.isEhBasedSource())
                                         spool.write(SourceImportDiskSpool.Page(key, next, page.mangas))
