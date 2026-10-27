@@ -81,8 +81,9 @@ internal object SourceImportManager {
         previous?.cleanIfReplaced()
     }
 
-    suspend fun resume(sourceId: Long) = commandMutex.withLock {
+    suspend fun resume(sourceId: Long, minimumPages: Int? = null) = commandMutex.withLock {
         val store = checkNotNull(SourceImportStore.current(context.filesDir, sourceId))
+        minimumPages?.let { store.update(store.config.copy(minimumPages = it.coerceIn(0, 1_000_000))) }
         store.resume()
         state(sourceId).value = state(sourceId).value.copy(status = SourceImportStatus.QUEUED, error = null, stats = null)
         enqueue(store.config, ExistingWorkPolicy.REPLACE)
