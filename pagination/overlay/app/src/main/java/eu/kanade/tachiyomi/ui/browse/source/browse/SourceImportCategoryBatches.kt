@@ -1,7 +1,7 @@
 package eu.kanade.tachiyomi.ui.browse.source.browse
 
 /**
- * Assigns imported entries to consecutive categories of at most [capacity] entries.
+ * Assigns imported entries to consecutive categories of at most [capacity] entries (5,000 by default).
  * The offset is the number of entries already journaled for this import. This
  * makes the split deterministic on retry, restart, and transaction replay.
  */
@@ -13,7 +13,7 @@ internal data class SourceImportCategoryBatch(
 internal fun categoryBatches(
     ids: List<Long>,
     completedBefore: Int,
-    capacity: Int = 500,
+    capacity: Int = 5_000,
 ): List<SourceImportCategoryBatch> {
     require(completedBefore >= 0 && capacity > 0)
     if (ids.isEmpty()) return emptyList()

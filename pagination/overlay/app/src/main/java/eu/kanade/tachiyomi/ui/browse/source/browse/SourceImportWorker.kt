@@ -195,7 +195,7 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                 .associateBy { it.name.lowercase(java.util.Locale.ROOT) }
                 .toMutableMap()
             suspend fun saveInSplitCategories(ids: List<Long>, completedBefore: Int) {
-                for (group in categoryBatches(ids, completedBefore)) {
+                for (group in categoryBatches(ids, completedBefore, capacity = 5_000)) {
                     val name = sourceImportCategoryName(source.name, group.categoryIndex)
                     val normalized = name.lowercase(java.util.Locale.ROOT)
                     val target = categoryCache[normalized]

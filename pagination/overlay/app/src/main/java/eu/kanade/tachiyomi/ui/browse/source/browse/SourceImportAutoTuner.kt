@@ -1,10 +1,10 @@
 package eu.kanade.tachiyomi.ui.browse.source.browse
 
 /**
- * Feedback tuner for independent catalog page requests.
+ * Tunes the number of concurrent catalog requests using saved items per second.
  *
- * Network recovery temporarily suspends sampling. Periodic rechecks probe a
- * neighboring concurrency limit rather than restarting at one every two minutes.
+ * Always try more parallelism first (doubling, up to 64). Only if that stops
+ * improving throughput, try less parallelism (halving). Never use +/-1 probes.
  * Only committed pages contribute to a rate sample.
  */
 internal class SourceImportAutoTuner(
@@ -13,6 +13,8 @@ internal class SourceImportAutoTuner(
     startingLimit: Int = 16,
 ) {
     private val maximum = maximum.coerceIn(1, 64)
+
+    private enum class ProbeDirection { INCREASE, DECREASE }
 
     @Volatile
     var limit = startingLimit.coerceIn(1, this.maximum)
@@ -28,15 +30,41 @@ internal class SourceImportAutoTuner(
 
     private var bestLimit = limit
     private var bestRate = 0.0
+    private var startingProbeLimit = limit
+    private var direction = ProbeDirection.INCREASE
     private var startedAt = nowMillis()
     private var settledAt: Long? = null
     private var firstKey = 2
     private var pages = 0
     private var items = 0L
     private var pausedForRecovery = false
-    private var testedBelow = false
-    private var refining = false
-    private var direction = -1
+
+    private fun higher(from: Int): Int? =
+        if (from < maximum) (from * 2).coerceAtMost(maximum) else null
+
+    private fun lower(from: Int): Int? =
+        if (from > 1) (from / 2).coerceAtLeast(1) else null
+
+    private fun settle(now: Long) {
+        searching = false
+        settledAt = now
+        nextLimit = bestLimit.takeIf { it != limit }
+    }
+
+    private fun startProbing(now: Long, rate: Double) {
+        startingProbeLimit = limit
+        bestLimit = limit
+        bestRate = rate
+        searching = true
+        direction = ProbeDirection.INCREASE
+        settledAt = null
+        // If we are already at the ceiling, decrease is the only possible test.
+        nextLimit = higher(limit) ?: run {
+            direction = ProbeDirection.DECREASE
+            lower(limit)
+        }
+        if (nextLimit == null) settle(now)
+    }
 
     @Synchronized
     fun saved(key: Int, count: Int) {
@@ -51,44 +79,36 @@ internal class SourceImportAutoTuner(
         val rate = items * 1_000.0 / elapsed.coerceAtLeast(1)
 
         if (searching) {
-            if (bestRate == 0.0 || rate > bestRate * 1.03) {
-                bestRate = rate
-                bestLimit = limit
-                nextLimit = when {
-                    refining -> (limit + direction).coerceIn(1, maximum)
-                    !testedBelow && limit > 1 -> {
-                        testedBelow = true
-                        (limit / 2).coerceAtLeast(1)
-                    }
-                    limit < maximum -> (limit * 2).coerceAtMost(maximum)
-                    else -> null
-                }
-                if (nextLimit == null || nextLimit == limit) {
-                    searching = false
-                    settledAt = now
-                }
+            if (bestRate == 0.0) {
+                startProbing(now, rate)
             } else {
-                // A worse sample establishes a bracket. Probe one request at a
-                // time around the best result, on both sides of the optimum.
-                refining = true
-                direction = if (limit < bestLimit) 1 else -1
-                nextLimit = (bestLimit + direction).coerceIn(1, maximum)
-                if (nextLimit == bestLimit || nextLimit == limit) {
-                    searching = false
-                    settledAt = now
-                    nextLimit = bestLimit
+                val improved = rate > bestRate * 1.03
+                if (improved) {
+                    bestRate = rate
+                    bestLimit = limit
                 }
+                nextLimit = when (direction) {
+                    ProbeDirection.INCREASE -> {
+                        if (improved) {
+                            // Continue doubling while faster.
+                            higher(limit)
+                        } else {
+                            // First upward trial lost: test below the original
+                            // baseline rather than doing +/-1 around the peak.
+                            direction = ProbeDirection.DECREASE
+                            lower(startingProbeLimit)
+                        }
+                    }
+                    ProbeDirection.DECREASE -> if (improved) lower(limit) else null
+                }
+                if (nextLimit == null) settle(now)
             }
         } else {
             val slowing = bestRate > 0.0 && rate < bestRate * 0.65
-            if ((recheckDue || slowing) && maximum > 1) {
-                bestRate = rate
-                bestLimit = limit
-                searching = true
-                refining = true
-                direction = if (slowing && limit > 1) -1 else 1
-                nextLimit = (limit + direction).coerceIn(1, maximum)
-                settledAt = null
+            if (recheckDue || slowing) {
+                // Rechecks also test increasing first, rather than repeatedly
+                // starting the search from one request.
+                startProbing(now, rate)
             } else {
                 bestRate = rate
             }
@@ -98,10 +118,7 @@ internal class SourceImportAutoTuner(
         if (nextLimit == null) resetWindow(key + 1)
     }
 
-    /**
-     * Pause rate measurement while requests back off or the scheduler refills.
-     * Keep the previous preferred limit so we can recover gradually.
-     */
+    /** Suspend rate sampling during backoff, preserving the preferred limit. */
     @Synchronized
     fun pauseForRecovery() {
         pausedForRecovery = true
@@ -116,7 +133,6 @@ internal class SourceImportAutoTuner(
         nextLimit = null
         bestLimit = limit
         bestRate = 0.0
-        // Re-evaluate after a short stable sample, not another full two minutes.
         settledAt = nowMillis() - 90_000L
         resetWindow(firstKey)
     }

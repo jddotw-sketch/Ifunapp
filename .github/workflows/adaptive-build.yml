@@ -64,16 +64,16 @@ jobs:
           apk=$(find /tmp/komikku-source-import/komikku-master/app/build/outputs/apk -type f -name '*.apk' | head -n 1)
           test -n "$apk"
           ls -lh "$apk"
-          tag="komikku-reliable-500-autotune-20261026"
+          tag="komikku-5000-upfirst-20261027"
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "$apk" --clobber
           else
-            gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title "Komikku Reliable Pagination 500-Entry Categories" --notes "Experimental Komikku source importer: 4-page batching, insert-only metadata mode, crash-safe journal and 64-request adaptive pagination. Debug build; tests passed." --prerelease
+            gh release create "$tag" "$apk" --target "$GITHUB_SHA" --title "Komikku Experimental Import - 5,000-Entry Categories" --notes "Experimental source import: 5,000 entries per category, increase-first auto concurrency with doubling/halving rather than +/-1, crash-safe journaling and up to 64 concurrent page requests. Debug build; tests passed." --prerelease
           fi
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Komikku-Reliable-500-AutoTune-APK
+          name: Komikku-5000-UpFirst-Auto-APK
           path: /tmp/komikku-source-import/komikku-master/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
