@@ -29,6 +29,8 @@ class SourcePreferences(
 
     fun sourceImportMode(sourceId: Long) = preferenceStore.getString("source_import_mode_$sourceId", "STREAM")
 
+    fun sourceImportMinimumPages(sourceId: Long) = preferenceStore.getString("source_import_minimum_pages_$sourceId", "0")
+
     fun sourceImportAutomatic(sourceId: Long) = preferenceStore.getBoolean("source_import_automatic_$sourceId", true)
 
     fun incognitoExtensions() = preferenceStore.getStringSet("incognito_extensions", emptySet())
