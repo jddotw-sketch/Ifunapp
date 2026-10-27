@@ -134,6 +134,7 @@ open class BrowseSourceScreenModel(
     var source = sourceManager.getOrStub(sourceId)
 
     var sourceImportPreloadPages by sourcePreferences.sourceImportPreloadPages(sourceId).asState(screenModelScope)
+    var sourceImportMinimumPages by sourcePreferences.sourceImportMinimumPages(sourceId).asState(screenModelScope)
     var sourceImportAutomatic by sourcePreferences.sourceImportAutomatic(sourceId).asState(screenModelScope)
     var sourceImportMode by sourcePreferences.sourceImportMode(sourceId).asState(screenModelScope)
 
@@ -501,6 +502,7 @@ open class BrowseSourceScreenModel(
                     filters = filterSerializer.serialize(listing.filters).toString(),
                     slowMode = slowMode,
                     importMode = sourceImportMode,
+                    minimumPages = sourceImportMinimumPages.toIntOrNull()?.coerceIn(0, 1_000_000) ?: 0,
                     automatic = sourceImportAutomatic,
                     preloadPages = if (sourceImportAutomatic) 64 else sourceImportPreloadPages.coerceIn(1, 64),
                 ),
