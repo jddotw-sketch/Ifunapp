@@ -34,6 +34,9 @@ internal class SourceImportAutoTuner(
     private var pages = 0
     private var items = 0L
     private var pausedForRecovery = false
+    private var testedBelow = false
+    private var refining = false
+    private var direction = -1
 
     @Synchronized
     fun saved(key: Int, count: Int) {
@@ -48,37 +51,45 @@ internal class SourceImportAutoTuner(
         val rate = items * 1_000.0 / elapsed.coerceAtLeast(1)
 
         if (searching) {
-            if (bestRate == 0.0 || rate > bestRate * 1.10) {
+            if (bestRate == 0.0 || rate > bestRate * 1.03) {
                 bestRate = rate
                 bestLimit = limit
-                if (limit < maximum) {
-                    nextLimit = (limit * 2).coerceAtMost(maximum)
-                } else {
+                nextLimit = when {
+                    refining -> (limit + direction).coerceIn(1, maximum)
+                    !testedBelow && limit > 1 -> {
+                        testedBelow = true
+                        (limit / 2).coerceAtLeast(1)
+                    }
+                    limit < maximum -> (limit * 2).coerceAtMost(maximum)
+                    else -> null
+                }
+                if (nextLimit == null || nextLimit == limit) {
                     searching = false
                     settledAt = now
                 }
             } else {
-                searching = false
-                settledAt = now
-                nextLimit = bestLimit
+                // A worse sample establishes a bracket. Probe one request at a
+                // time around the best result, on both sides of the optimum.
+                refining = true
+                direction = if (limit < bestLimit) 1 else -1
+                nextLimit = (bestLimit + direction).coerceIn(1, maximum)
+                if (nextLimit == bestLimit || nextLimit == limit) {
+                    searching = false
+                    settledAt = now
+                    nextLimit = bestLimit
+                }
             }
         } else {
             val slowing = bestRate > 0.0 && rate < bestRate * 0.65
             if ((recheckDue || slowing) && maximum > 1) {
-                // Anchor the comparison in the current source's performance.
-                // Rechecking from one wastes time on large catalogs.
                 bestRate = rate
                 bestLimit = limit
                 searching = true
+                refining = true
+                direction = if (slowing && limit > 1) -1 else 1
+                nextLimit = (limit + direction).coerceIn(1, maximum)
                 settledAt = null
-                nextLimit = when {
-                    slowing && limit > 1 -> (limit / 2).coerceAtLeast(1)
-                    limit < maximum -> (limit * 2).coerceAtMost(maximum)
-                    else -> (limit / 2).coerceAtLeast(1)
-                }
             } else {
-                // Do not slide the recheck deadline forward after each sample.
-                // It is measured from the last settled concurrency decision.
                 bestRate = rate
             }
         }
