@@ -188,14 +188,20 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                 }
             }
             val importManga = Injekt.get<ImportMangaToLibrary>()
+            // Resolve categories once, rather than running a category query
+            // for every 100-entry database batch in a 300K-entry import.
+            val categoryCache = getCategories.await()
+                .filterNot { it.isSystemCategory }
+                .associateBy { it.name.lowercase(java.util.Locale.ROOT) }
+                .toMutableMap()
             suspend fun saveInSplitCategories(ids: List<Long>, completedBefore: Int) {
-                val allCategories = getCategories.await().filterNot { it.isSystemCategory }.toMutableList()
                 for (group in categoryBatches(ids, completedBefore)) {
                     val name = sourceImportCategoryName(source.name, group.categoryIndex)
-                    val target = allCategories.firstOrNull { it.name.equals(name, true) }
+                    val normalized = name.lowercase(java.util.Locale.ROOT)
+                    val target = categoryCache[normalized]
                         ?: when (val result = Injekt.get<CreateCategoryWithName>().await(name)) {
                             is CreateCategoryWithName.Result.Success -> getCategories.await()
-                                .first { it.name.equals(name, true) }.also(allCategories::add)
+                                .first { it.name.equals(name, true) }.also { categoryCache[normalized] = it }
                             is CreateCategoryWithName.Result.InternalError -> throw result.error
                         }
                     importManga.await(group.ids, target.id) { _, _ -> }
