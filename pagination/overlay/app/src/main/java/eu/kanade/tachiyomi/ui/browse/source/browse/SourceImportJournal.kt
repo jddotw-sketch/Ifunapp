@@ -29,6 +29,7 @@ internal data class SourceImportConfig(
     val recoveryDelayMillis: Long = 0,
     val sequential: Boolean = false,
     val importMode: String = "STREAM",
+    val minimumPages: Int = 0,
 )
 
 internal data class SourceImportItem(val id: Long, val added: Boolean)
@@ -134,6 +135,7 @@ internal class SourceImportStore private constructor(val directory: File, var co
                 recoveryDelayMillis = properties.getProperty("recoveryDelayMillis", "0").toLong().coerceIn(0, 60_000),
                 sequential = properties.getProperty("sequential", "false").toBooleanStrict(),
                 importMode = properties.getProperty("importMode", "STREAM"),
+                minimumPages = properties.getProperty("minimumPages", "0").toInt().coerceIn(0, 1000000),
             )
             check(config.sourceId == sourceId)
             return SourceImportStore(directory, config)
@@ -164,6 +166,7 @@ internal class SourceImportStore private constructor(val directory: File, var co
                 setProperty("recoveryDelayMillis", config.recoveryDelayMillis.toString())
                 setProperty("sequential", config.sequential.toString())
                 setProperty("importMode", config.importMode)
+                setProperty("minimumPages", config.minimumPages.toString())
             }
             val bytes = ByteArrayOutputStream().also { properties.store(it, null) }.toByteArray()
             atomicWrite(File(directory, "config"), bytes)
