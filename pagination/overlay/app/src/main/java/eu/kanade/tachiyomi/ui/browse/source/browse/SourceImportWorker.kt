@@ -462,6 +462,11 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
             val attempts = SourceImportRetryTracker(File(store.directory, "retry-state")).record(page)
             val retry = sourceImportShouldRetry(error) && !store.pauseRequested && SourceImportManager.isCurrent(store)
             val detail = "Page ${page ?: "end"}, failure $attempts: ${error.message ?: error.javaClass.simpleName}"
+            telemetry.slowdown(
+                page,
+                error,
+                if (retry) "Restarting at the last saved checkpoint" else "Stopped: manual attention required",
+            )
             journal.status(if (retry) SourceImportStatus.QUEUED else SourceImportStatus.FAILED, detail)
             if (retry) Result.retry() else Result.failure()
         } finally {

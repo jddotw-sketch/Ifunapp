@@ -1,5 +1,46 @@
 package eu.kanade.tachiyomi.ui.browse.source.browse
 
+/**
+ * One source-side slowdown or recovery action. The reason is intentionally
+ * diagnostic-only and does not contain source URLs or authentication tokens.
+ */
+data class SourceImportSlowdown(
+    val pageKey: Int?,
+    val cause: String,
+    val action: String,
+    val atElapsedMillis: Long,
+    val retryIntervalMillis: Long? = null,
+)
+
+internal fun sourceImportExplainFailure(error: Throwable?): String {
+    if (error == null) return "Repeated page or no new catalog entries"
+    val detail = error.message.orEmpty().lowercase()
+    val type = error.javaClass.simpleName
+    return when {
+        ("429" in detail && ("http" in detail || "rate limit" in detail || type.contains("Http"))) ||
+            "too many requests" in detail || "throttl" in detail -> "HTTP 429: source is rate-limiting requests"
+        ("403" in detail && ("http" in detail || type.contains("Http"))) -> "HTTP 403: source blocked access"
+        ("401" in detail && ("http" in detail || type.contains("Http"))) -> "HTTP 401: source authentication required"
+        ("503" in detail && ("http" in detail || type.contains("Http"))) -> "HTTP 503: source is temporarily unavailable"
+        ("500" in detail && ("http" in detail || type.contains("Http"))) ||
+            ("502" in detail && ("http" in detail || type.contains("Http"))) ||
+            ("504" in detail && ("http" in detail || type.contains("Http"))) -> "Source server error"
+        "timeout" in type.lowercase() || "timed out" in detail -> "Source request timed out"
+        "unknownhost" in type.lowercase() || "unable to resolve host" in detail ->
+            "Source DNS lookup failed or network is offline"
+        "connection refused" in detail || "connectexception" in type.lowercase() ->
+            "Source connection failed"
+        "connection reset" in detail || "socketexception" in type.lowercase() ->
+            "Network connection interrupted"
+        "sqlite" in detail || "sqlite" in type.lowercase() || "database is locked" in detail ->
+            "Local database write failed"
+        "duplicate" in detail || "repeated" in detail || "no new entries" in detail ->
+            "Source returned a repeated catalog page"
+        "empty page" in detail -> "Source returned empty pages"
+        else -> "Unexpected source error ($type)"
+    }
+}
+
 data class SourceImportStats(
     val preloadPages: Int,
     val elapsedMillis: Long,
@@ -25,12 +66,14 @@ data class SourceImportStats(
     val autoSearching: Boolean = true,
     val restoredItems: Int = 0,
     val restoredPages: Int = 0,
+    val lastSlowdown: SourceImportSlowdown? = null,
+    val slowdownHistory: List<SourceImportSlowdown> = emptyList(),
 ) {
     val averageItemsPerSecond: Double get() = (added + existing - restoredItems) * 1_000.0 / elapsedMillis.coerceAtLeast(1)
     val pagesPerMinute: Double get() = (savedPages - restoredPages) * 60_000.0 / elapsedMillis.coerceAtLeast(1)
     val bottleneck: Bottleneck
         get() = when {
-            retryDelayMillis != null -> Bottleneck.RECOVERY
+            retryDelayMillis != null || mode == Mode.ERROR_FALLBACK || mode == Mode.REPEATED_FALLBACK -> Bottleneck.RECOVERY
             savedPages - restoredPages < 3 && elapsedMillis < 5_000 -> Bottleneck.STARTING
             savingMillis > waitingMillis * 1.25 && queueWaitMillis > elapsedMillis / 10 -> Bottleneck.SAVING
             waitingMillis > savingMillis * 1.25 -> Bottleneck.LOADING
@@ -65,6 +108,9 @@ internal class SourceImportTelemetry(
     private var errors = 0
     private var recoveries = 0
     private var retryDelay: Long? = null
+    private var failedPageKey: Int? = null
+    private var failedCause: String? = null
+    private val slowdowns = ArrayDeque<SourceImportSlowdown>()
     private var loadMillis = 0L
     private var successfulRequests = 0
     private var waitingMillis = 0L
@@ -98,7 +144,30 @@ internal class SourceImportTelemetry(
     }
 
     @Synchronized
-    fun requestFailed() { active--; errors++ }
+    fun requestFailed(pageKey: Int? = null, error: Throwable? = null) {
+        active--
+        errors++
+        failedPageKey = pageKey
+        failedCause = sourceImportExplainFailure(error)
+    }
+
+    @Synchronized
+    fun slowdown(pageKey: Int?, error: Throwable?, action: String) {
+        appendSlowdown(pageKey, sourceImportExplainFailure(error), action, null)
+    }
+
+    private fun appendSlowdown(pageKey: Int?, cause: String, action: String, interval: Long?) {
+        slowdowns.addLast(
+            SourceImportSlowdown(
+                pageKey = pageKey,
+                cause = cause,
+                action = action,
+                atElapsedMillis = (nowMillis() - startedAt).coerceAtLeast(0),
+                retryIntervalMillis = interval,
+            ),
+        )
+        while (slowdowns.size > 5) slowdowns.removeFirst()
+    }
 
     @Synchronized
     fun requestCancelled() { active-- }
@@ -106,7 +175,27 @@ internal class SourceImportTelemetry(
     @Synchronized
     fun retry(delayMillis: Long?) {
         retryDelay = delayMillis
-        if (delayMillis != null) recoveries++
+        if (delayMillis != null) {
+            recoveries++
+            // Keep the actual reason and page through the cooldown, not merely
+            // a "retrying" counter. A previous sequential fallback may already
+            // have recorded the slowdown, in which case attach its wait interval.
+            val previous = slowdowns.lastOrNull()
+            val elapsed = (nowMillis() - startedAt).coerceAtLeast(0)
+            if (previous != null && previous.pageKey == failedPageKey &&
+                elapsed - previous.atElapsedMillis < 15_000
+            ) {
+                slowdowns.removeLast()
+                slowdowns.addLast(previous.copy(retryIntervalMillis = delayMillis))
+            } else {
+                appendSlowdown(
+                    failedPageKey,
+                    failedCause ?: "Temporary source request failure",
+                    "Waiting before retrying; reducing request rate",
+                    delayMillis,
+                )
+            }
+        }
     }
 
     @Synchronized
@@ -196,6 +285,8 @@ internal class SourceImportTelemetry(
             autoSearching = autoSearching,
             restoredItems = restoredItems,
             restoredPages = restoredPages,
+            lastSlowdown = slowdowns.lastOrNull(),
+            slowdownHistory = slowdowns.toList(),
         )
     }
 

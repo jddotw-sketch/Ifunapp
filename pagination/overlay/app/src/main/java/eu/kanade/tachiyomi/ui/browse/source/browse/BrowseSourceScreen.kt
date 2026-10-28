@@ -661,6 +661,9 @@ data class BrowseSourceScreen(
                         state.sourceImportRetryDelayMillis?.let { retryDelay ->
                             Text(stringResource(KMR.strings.source_import_retrying, retryDelay / 1_000))
                         }
+                        state.sourceImportStats?.lastSlowdown?.let { slowdown ->
+                            Text("Last slowdown · page ${slowdown.pageKey ?: "?"}: ${slowdown.cause}")
+                        }
                     }
                 },
                 confirmButton = {

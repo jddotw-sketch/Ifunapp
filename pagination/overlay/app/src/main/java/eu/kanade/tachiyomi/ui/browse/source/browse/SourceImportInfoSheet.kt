@@ -99,6 +99,8 @@ fun SourceImportInfoSheet(
         stringResource(KMR.strings.source_import_error_counts) to "${stats.errors} / ${stats.recoveries}",
     )
     val explanation = stringResource(KMR.strings.source_import_diagnostics_note)
+    val lastSlowdown = stats.lastSlowdown
+    val slowdownHistory = stats.slowdownHistory.takeLast(5).asReversed()
     val status = stringResource(if (stats.finished) KMR.strings.source_import_finished else KMR.strings.source_import_running)
     val report = buildString {
         appendLine(sourceName)
@@ -106,6 +108,19 @@ fun SourceImportInfoSheet(
         appendLine(mode)
         appendLine(bottleneck)
         rows.forEach { (label, value) -> appendLine("$label: $value") }
+        lastSlowdown?.let { issue ->
+            appendLine("Last slowdown: ${issue.cause}")
+            appendLine("Page: ${issue.pageKey ?: "unknown"}")
+            appendLine("Automatic response: ${issue.action}")
+            issue.retryIntervalMillis?.let { appendLine("Retry interval: ${it / 1_000.0} seconds") }
+            appendLine("Occurred ${issue.atElapsedMillis / 1_000.0} seconds into this run")
+        }
+        if (slowdownHistory.isNotEmpty()) {
+            appendLine("Recent slowdown history:")
+            slowdownHistory.forEach { issue ->
+                appendLine("Page ${issue.pageKey ?: "?"}: ${issue.cause}; ${issue.action}")
+            }
+        }
         append(explanation)
     }
 
@@ -132,6 +147,29 @@ fun SourceImportInfoSheet(
             }
             stats.retryDelayMillis?.takeUnless { stats.finished }?.let {
                 Text(stringResource(KMR.strings.source_import_retrying, it / 1_000))
+            }
+            lastSlowdown?.let { issue ->
+                HorizontalDivider()
+                Text("Most recent error slowdown", style = MaterialTheme.typography.titleMedium)
+                Text("Page: ${issue.pageKey ?: "unknown"}")
+                Text("Cause: ${issue.cause}")
+                Text("Recovery action: ${issue.action}")
+                issue.retryIntervalMillis?.let {
+                    Text("Retry interval: ${String.format(Locale.ROOT, "%.1f", it / 1_000.0)} seconds")
+                }
+                Text(
+                    "Occurred ${String.format(Locale.ROOT, "%.1f", issue.atElapsedMillis / 1_000.0)} seconds into this run",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            if (slowdownHistory.size > 1) {
+                Text("Recent slowdowns", style = MaterialTheme.typography.titleSmall)
+                slowdownHistory.forEach { issue ->
+                    Text(
+                        "Page ${issue.pageKey ?: "?"} · ${issue.cause} · ${issue.action}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
             Text(explanation, style = MaterialTheme.typography.bodySmall)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

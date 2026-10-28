@@ -50,7 +50,7 @@ internal class SourceImportLoader(
             telemetry?.requestCancelled()
             throw error
         } catch (error: Exception) {
-            telemetry?.requestFailed()
+            telemetry?.requestFailed(key, error)
             throw error
         }
     }
@@ -124,6 +124,11 @@ internal class SourceImportLoader(
             if (usesCursor || slowMode || parallelDisabled || preloadPages == 1) {
                 error("Catalog page $retryKey repeated or contained no new entries even in sequential mode")
             }
+            telemetry?.slowdown(
+                retryKey,
+                null,
+                "Source repeated the page; switching to one request at a time",
+            )
             parallelDisabled = true
             onSequentialFallback()
             telemetry?.mode(SourceImportStats.Mode.REPEATED_FALLBACK, 1)
@@ -213,6 +218,11 @@ internal class SourceImportLoader(
                 while (true) {
                     val next = ready.remove(nextEmitKey) ?: break
                     if (next.isFailure) {
+                        telemetry?.slowdown(
+                            nextEmitKey,
+                            next.exceptionOrNull(),
+                            "Paused parallel requests; retrying missing page sequentially",
+                        )
                         // A transient failure should lower the request rate, not permanently
                         // disable parallel pagination or poison the saved checkpoint.
                         // Drain speculative requests and retry the exact missing page in order.
