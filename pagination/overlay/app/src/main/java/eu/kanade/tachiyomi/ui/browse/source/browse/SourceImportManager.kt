@@ -1,24 +1,35 @@
 package eu.kanade.tachiyomi.ui.browse.source.browse
 
 import android.app.Application
+import android.content.Context
 import androidx.work.BackoffPolicy
+import androidx.work.CoroutineWorker
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkInfo
+import androidx.work.WorkerParameters
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.File
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 
 internal data class SourceImportBackgroundState(
     val id: String? = null,
@@ -62,10 +73,17 @@ internal object SourceImportManager {
                     canResume = journal.status != SourceImportStatus.FINISHED,
                     error = journal.error,
                 )
-                if (value.active) enqueue(store.config, ExistingWorkPolicy.KEEP)
+                if (!store.pauseRequested && journal.status != SourceImportStatus.FINISHED) {
+                    scheduleRecoveryWatch()
+                }
                 value
             }.getOrElse { SourceImportBackgroundState(status = SourceImportStatus.FAILED, error = it.message) }
             state.compareAndSet(initial, restored)
+            // The previous APK may have left an old work request FAILED or
+            // CANCELLED. Reconcile it immediately when this screen opens.
+            if (restored.id != null && restored.status != SourceImportStatus.FINISHED) {
+                recoverAbandonedImports()
+            }
         }
         emitAll(state)
     }
@@ -80,6 +98,7 @@ internal object SourceImportManager {
             canResume = true,
         )
         enqueue(store.config, ExistingWorkPolicy.REPLACE)
+        scheduleRecoveryWatch()
         previous?.cleanIfReplaced()
     }
 
@@ -90,6 +109,7 @@ internal object SourceImportManager {
         SourceImportRetryTracker(File(store.directory, "retry-state")).clear()
         state(sourceId).value = state(sourceId).value.copy(status = SourceImportStatus.QUEUED, error = null, stats = null)
         enqueue(store.config, ExistingWorkPolicy.REPLACE)
+        scheduleRecoveryWatch()
     }
 
     suspend fun saveDownloaded(sourceId: Long) = commandMutex.withLock {
@@ -131,11 +151,73 @@ internal object SourceImportManager {
         val request = OneTimeWorkRequestBuilder<SourceImportWorker>()
             .setInputData(workDataOf("sourceId" to config.sourceId, "jobId" to config.id, "sourceName" to config.sourceName))
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.SECONDS)
+            .setBackoffCriteria(BackoffPolicy.LINEAR, 15, TimeUnit.SECONDS)
             .addTag("SourceImport")
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(workName(config.sourceId), policy, request).result.get()
     }
 
     private fun workName(sourceId: Long) = "SourceImport-$sourceId"
+
+    private fun scheduleRecoveryWatch() {
+        // WorkManager and Android can terminate jobs while the app is closed.
+        // An on-device periodic reconciliation restores orphaned imports.
+        val request = PeriodicWorkRequestBuilder<SourceImportRecoveryWorker>(15, TimeUnit.MINUTES)
+            .build()
+        WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            "SourceImport-Recovery",
+            ExistingPeriodicWorkPolicy.KEEP,
+            request,
+        )
+    }
+
+    suspend fun recoverAbandonedImports() = commandMutex.withLock {
+        withContext(Dispatchers.IO) {
+            val manager = WorkManager.getInstance(context)
+            val folders = File(context.filesDir, "source-import").listFiles().orEmpty()
+            for (folder in folders) {
+                currentCoroutineContext().ensureActive()
+                val sourceId = folder.name.toLongOrNull() ?: continue
+                val store = runCatching { SourceImportStore.current(context.filesDir, sourceId) }.getOrNull() ?: continue
+                if (store.pauseRequested) continue
+
+                // Inspect the actual WorkManager state BEFORE opening the journal:
+                // a running worker may still be writing its last journal record.
+                val isActive = manager.getWorkInfosForUniqueWork(workName(sourceId)).get().any {
+                    it.state == WorkInfo.State.RUNNING ||
+                        it.state == WorkInfo.State.ENQUEUED ||
+                        it.state == WorkInfo.State.BLOCKED
+                }
+                if (isActive) continue
+                val journal = runCatching {
+                    SourceImportJournal(File(store.directory, "journal"), repair = true)
+                }.getOrNull() ?: continue
+                if (!sourceImportNeedsRecovery(journal.status, store.pauseRequested, isActive)) continue
+
+                val current = state(sourceId).value
+                if (current.id == null || current.id == store.config.id) {
+                    state(sourceId).value = current.copy(
+                        id = store.config.id,
+                        status = SourceImportStatus.QUEUED,
+                        canResume = true,
+                        error = journal.error,
+                    )
+                }
+                enqueue(store.config, ExistingWorkPolicy.REPLACE)
+            }
+        }
+    }
+}
+
+// Restarts jobs that Android abandoned without touching explicitly paused
+// imports or already completed catalogs.
+internal class SourceImportRecoveryWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
+    override suspend fun doWork(): Result = try {
+        SourceImportManager.recoverAbandonedImports()
+        Result.success()
+    } catch (error: CancellationException) {
+        throw error
+    } catch (_: Exception) {
+        Result.retry()
+    }
 }

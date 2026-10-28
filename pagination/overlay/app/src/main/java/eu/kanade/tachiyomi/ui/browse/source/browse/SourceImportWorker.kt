@@ -92,7 +92,7 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
         throw error
     } catch (error: Exception) {
         val message = error.message ?: error.javaClass.simpleName
-        if (runAttemptCount < 12) {
+        if (sourceImportShouldRetry(error)) {
             SourceImportManager.retrying(sourceId, message, inputData.getString("jobId"))
             Result.retry()
         } else {
@@ -170,9 +170,8 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
             setForeground(getForegroundInfo())
             val sourceManager = Injekt.get<SourceManager>()
             sourceManager.isInitialized.first { it }
-            val source = checkNotNull(sourceManager.get(sourceId)) {
-                applicationContext.stringResource(KMR.strings.source_import_missing_source)
-            }
+            val source = sourceManager.get(sourceId)
+                ?: throw SourceImportPermanentFailure(applicationContext.stringResource(KMR.strings.source_import_missing_source))
             val getCategories = Injekt.get<GetCategories>()
             val category = getCategories.await().firstOrNull { it.id == store.config.categoryId }
                 ?: getCategories.await().firstOrNull { !it.isSystemCategory && it.name.equals(source.name, true) }
@@ -186,10 +185,12 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
             if (store.config.listing == "SEARCH") {
                 val saved = Json.decodeFromString<JsonArray>(store.config.filters)
                 val serializer = FilterSerializer()
-                check(filters.size == saved.size) { applicationContext.stringResource(KMR.strings.source_import_changed_filters) }
+                if (filters.size != saved.size) {
+                    throw SourceImportPermanentFailure(applicationContext.stringResource(KMR.strings.source_import_changed_filters))
+                }
                 serializer.deserialize(filters, saved)
-                check(serializer.serialize(filters) == saved) {
-                    applicationContext.stringResource(KMR.strings.source_import_changed_filters)
+                if (serializer.serialize(filters) != saved) {
+                    throw SourceImportPermanentFailure(applicationContext.stringResource(KMR.strings.source_import_changed_filters))
                 }
             }
             val importManga = Injekt.get<ImportMangaToLibrary>()
@@ -459,7 +460,7 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
         } catch (error: Exception) {
             val page = journal.nextKey
             val attempts = SourceImportRetryTracker(File(store.directory, "retry-state")).record(page)
-            val retry = attempts <= 24 && !store.pauseRequested && SourceImportManager.isCurrent(store)
+            val retry = sourceImportShouldRetry(error) && !store.pauseRequested && SourceImportManager.isCurrent(store)
             val detail = "Page ${page ?: "end"}, failure $attempts: ${error.message ?: error.javaClass.simpleName}"
             journal.status(if (retry) SourceImportStatus.QUEUED else SourceImportStatus.FAILED, detail)
             if (retry) Result.retry() else Result.failure()

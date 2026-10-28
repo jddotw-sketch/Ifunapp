@@ -12,7 +12,7 @@ internal class SourceImportRetryTracker(private val file: File) {
         val current = nextKey?.toString() ?: "end"
         val old = runCatching { file.readLines() }.getOrNull().orEmpty()
         val attempts = if (old.getOrNull(0) == current) {
-            (old.getOrNull(1)?.toIntOrNull() ?: 0).coerceIn(0, 24) + 1
+            (old.getOrNull(1)?.toIntOrNull() ?: 0).coerceIn(0, 999_998) + 1
         } else {
             1
         }
