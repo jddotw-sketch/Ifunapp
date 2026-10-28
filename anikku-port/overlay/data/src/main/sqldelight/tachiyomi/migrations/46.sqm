@@ -1,0 +1,4 @@
+-- Anikku bulk import composite indexes, including already populated installations.
+CREATE INDEX IF NOT EXISTS idx_animes_source_url_import ON animes(source, url);
+CREATE INDEX IF NOT EXISTS idx_animes_categories_anime_id ON animes_categories(anime_id);
+CREATE INDEX IF NOT EXISTS idx_animes_categories_category_id ON animes_categories(category_id);
