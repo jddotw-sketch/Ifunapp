@@ -154,7 +154,29 @@ open class BrowseSourceScreenModel(
     init {
         screenModelScope.launchIO {
             SourceImportManager.observe(sourceId).collect { background ->
-                // KMK -->
+                mutableState.update {
+                    it.copy(
+                        sourceImportProgress = if (background.active) background.added else null,
+                        sourceImportExistingCount = background.existing,
+                        sourceImportRetryDelayMillis = background.stats?.retryDelayMillis,
+                        sourceImportStats = background.stats,
+                        sourceImportCanResume = background.canResume && !background.active,
+                        sourceImportHasCheckpoint = background.id != null || background.status == SourceImportStatus.FAILED,
+                        sourceImportSavedPages = background.pages,
+                        sourceImportDownloadedPages = background.downloadedPages,
+                        sourceImportModeRunning = background.importMode,
+                        sourceImportSaveRequested = background.saveRequested,
+                        sourceImportResult = when (background.status) {
+                            SourceImportStatus.FINISHED -> SourceImportResult(background.added, existingCount = background.existing)
+                            SourceImportStatus.PAUSED -> SourceImportResult(background.added, existingCount = background.existing, stopped = true)
+                            SourceImportStatus.FAILED -> SourceImportResult(background.added, background.error, background.existing)
+                            else -> null
+                        },
+                    )
+                }
+            }
+        }
+        // KMK -->
         screenModelScope.launch {
             var retry = 10
             while (source !is CatalogueSource && retry-- > 0) {
