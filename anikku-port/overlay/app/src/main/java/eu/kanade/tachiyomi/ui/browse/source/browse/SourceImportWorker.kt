@@ -8,7 +8,6 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
-import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.data.notification.Notifications
@@ -84,11 +83,6 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             ),
         )
-        addAction(
-            android.R.drawable.ic_media_pause,
-            applicationContext.stringResource(KMR.strings.source_import_pause),
-            WorkManager.getInstance(applicationContext).createCancelPendingIntent(id),
-        )
         setOngoing(true)
         setOnlyAlertOnce(true)
         setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
@@ -100,8 +94,14 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
     } catch (error: CancellationException) {
         throw error
     } catch (error: Exception) {
-        SourceImportManager.failed(sourceId, error.message ?: error.javaClass.simpleName, inputData.getString("jobId"))
-        if (runAttemptCount < 8) Result.retry() else Result.failure()
+        val message = error.message ?: error.javaClass.simpleName
+        if (runAttemptCount < 12) {
+            SourceImportManager.retrying(sourceId, message, inputData.getString("jobId"))
+            Result.retry()
+        } else {
+            SourceImportManager.failed(sourceId, message, inputData.getString("jobId"))
+            Result.failure()
+        }
     }
 
     private suspend fun runImport(): Result = withContext(Dispatchers.IO) {
@@ -159,8 +159,13 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                     this@coroutineScope.cancel()
                     break
                 }
-                publish(store, journal, telemetry)
-                applicationContext.notify(notificationId, notification())
+                // Notification failure must not cancel a long-running import.
+                try {
+                    publish(store, journal, telemetry)
+                    applicationContext.notify(notificationId, notification())
+                } catch (error: Exception) {
+                    if (error is CancellationException) throw error
+                }
                 delay(1_000)
             }
         }
@@ -314,7 +319,9 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                     val plan = pageTracker.prepare(key, next, mangas.map { SourceImportItem(it.id, !it.favorite) })
                     if (plan == null) {
                         flushPendingPages()
-                        error("Source returned a duplicate or empty page at key $key; paused for safe resume")
+                        // Retry the same page without concurrent loads. A persistent
+                        // duplicate is escalated for checkpoint-based recovery.
+                        return false
                     }
                     pendingPages.add(plan)
                     if (pendingPages.size >= 4 || pendingPages.sumOf { it.items.size } >= 100 || next == null) {
@@ -331,6 +338,7 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                     val spool = SourceImportDiskSpool(File(store.directory, "page-spool"))
                     val firstUncached = spool.firstUncachedKey(firstKey)
                     val downloaderDone = java.util.concurrent.atomic.AtomicBoolean(firstUncached == null)
+                    val downloaderFailure = java.util.concurrent.atomic.AtomicReference<Exception?>(null)
                     val signal = Channel<Unit>(Channel.CONFLATED)
                     // Detect an extension returning an identical catalog page under
                     // parallel pagination before preserving it in the disk queue.
@@ -363,7 +371,7 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                                             first.url to page.mangas.last().url
                                         }
                                         if (signature != null && !pageSignatures.add(signature)) {
-                                            error("Repeated source page at $key; import stopped for safe recovery")
+                                            return@runWithKeys false
                                         }
                                         val next = nextSourceImportPage(page, key, false)
                                         spool.write(SourceImportDiskSpool.Page(key, next, page.mangas))
@@ -371,6 +379,11 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                                         true
                                     }
                                 }
+                            } catch (error: CancellationException) {
+                                throw error
+                            } catch (error: Exception) {
+                                // Surface network failures instead of silently ending the catalog.
+                                downloaderFailure.set(error)
                             } finally {
                                 downloaderDone.set(true)
                                 signal.trySend(Unit)
@@ -397,7 +410,11 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                             currentCoroutineContext().ensureActive()
                             val cached = spool.read(readKey)
                             if (cached == null) {
-                                if (downloaderDone.get()) break
+                                if (downloaderDone.get()) {
+                                    downloaderFailure.get()?.let { throw it }
+                                    if (partialSaveToken != null) break
+                                    error("Missing downloaded page $readKey; preserving checkpoint for retry")
+                                }
                                 signal.receive()
                                 continue
                             }
@@ -433,19 +450,24 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                 error("Only ${journal.pages} of the expected ${store.config.minimumPages} catalog pages were saved. Resume after checking the source.")
             }
             journal.status(SourceImportStatus.FINISHED)
+            SourceImportRetryTracker(File(store.directory, "retry-state")).clear()
             Result.success()
         } catch (error: CancellationException) {
-            withContext(NonCancellable) { journal.status(SourceImportStatus.PAUSED) }
+            withContext(NonCancellable) {
+                // Android can cancel background work for network constraints.
+                // Only an explicit Pause button should mark the import PAUSED.
+                if (SourceImportManager.isCurrent(store)) {
+                    journal.status(if (store.pauseRequested) SourceImportStatus.PAUSED else SourceImportStatus.QUEUED)
+                }
+            }
             throw error
         } catch (error: Exception) {
-            journal.status(SourceImportStatus.FAILED, error.message ?: error.javaClass.simpleName)
-            if (!store.pauseRequested && runAttemptCount < 8 && SourceImportManager.isCurrent(store)) {
-                // WorkManager retries with exponential backoff from the last
-                // committed checkpoint; user pause and replacement are excluded.
-                Result.retry()
-            } else {
-                Result.failure()
-            }
+            val page = journal.nextKey
+            val attempts = SourceImportRetryTracker(File(store.directory, "retry-state")).record(page)
+            val retry = attempts <= 24 && !store.pauseRequested && SourceImportManager.isCurrent(store)
+            val detail = "Page ${page ?: "end"}, failure $attempts: ${error.message ?: error.javaClass.simpleName}"
+            journal.status(if (retry) SourceImportStatus.QUEUED else SourceImportStatus.FAILED, detail)
+            if (retry) Result.retry() else Result.failure()
         } finally {
             ticker.cancel()
             telemetry.finish()

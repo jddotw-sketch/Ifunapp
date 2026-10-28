@@ -87,6 +87,7 @@ internal object SourceImportManager {
         val store = checkNotNull(SourceImportStore.current(context.filesDir, sourceId))
         minimumPages?.let { store.update(store.config.copy(minimumPages = it.coerceIn(0, 1_000_000))) }
         store.resume()
+        SourceImportRetryTracker(File(store.directory, "retry-state")).clear()
         state(sourceId).value = state(sourceId).value.copy(status = SourceImportStatus.QUEUED, error = null, stats = null)
         enqueue(store.config, ExistingWorkPolicy.REPLACE)
     }
@@ -107,6 +108,13 @@ internal object SourceImportManager {
 
     fun publish(store: SourceImportStore, value: SourceImportBackgroundState) {
         if (isCurrent(store)) state(store.config.sourceId).value = value
+    }
+
+    fun retrying(sourceId: Long, message: String, expectedId: String? = null) {
+        val state = state(sourceId)
+        val previous = state.value
+        if (expectedId != null && previous.id != null && previous.id != expectedId) return
+        state.value = previous.copy(status = SourceImportStatus.QUEUED, error = message, canResume = previous.id != null)
     }
 
     fun failed(sourceId: Long, message: String, expectedId: String? = null) {

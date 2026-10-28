@@ -286,6 +286,28 @@ class SourceImportLoaderTest {
         assertEquals(0, active)
     }
 
+
+    @Test
+    fun `repeated cursor page cannot silently finish without progress`() = runTest {
+        val loader = SourceImportLoader(false, true, {}, { testScheduler.currentTime })
+        var message: String? = null
+        try {
+            loader.runWithKeys(
+                request = { key ->
+                    MetadataMangasPage(
+                        page(key, true).mangas,
+                        true,
+                        emptyList(),
+                        key.toLong() + 1,
+                    )
+                },
+            ) { _, _ -> false }
+        } catch (error: IllegalStateException) {
+            message = error.message
+        }
+        assertTrue(message?.contains("repeated or contained no new entries") == true)
+    }
+
     private fun page(key: Int, hasNext: Boolean): MangasPage {
         return MangasPage(listOf(SManga.create().apply { url = key.toString() }), hasNext)
     }
