@@ -6,6 +6,9 @@ import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.manga.model.MangaUpdate
 import tachiyomi.domain.manga.model.MangaWithChapterCount
 
+/** Minimal projection for source imports; avoids decoding a full Manga for each catalog hit. */
+data class SourceImportManga(val id: Long, val url: String, val favorite: Boolean)
+
 interface MangaRepository {
 
     suspend fun getMangaById(id: Long): Manga
@@ -39,6 +42,8 @@ interface MangaRepository {
     suspend fun update(update: MangaUpdate): Boolean
 
     suspend fun updateAll(mangaUpdates: List<MangaUpdate>): Boolean
+
+    suspend fun insertNetworkMangaForImport(manga: List<Manga>): List<SourceImportManga>
 
     suspend fun insertNetworkManga(
         manga: List<Manga>,

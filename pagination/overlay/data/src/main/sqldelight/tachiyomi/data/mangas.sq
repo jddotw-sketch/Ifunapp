@@ -37,6 +37,8 @@ CREATE TABLE mangas(
 CREATE INDEX library_favorite_index ON mangas(favorite) WHERE favorite = 1;
 CREATE INDEX mangas_url_index ON mangas(url);
 CREATE INDEX idx_mangas_source ON mangas(source);
+-- One index probe per source catalog entry, regardless of total library size.
+CREATE INDEX idx_mangas_source_url_import ON mangas(source, url);
 
 CREATE TRIGGER update_last_favorited_at_mangas
 AFTER UPDATE OF favorite ON mangas
@@ -300,3 +302,23 @@ SELECT count(*) FROM mangas WHERE _id IN :mangaIds AND favorite = 0;
 addSourceImportToLibrary:
 UPDATE mangas SET favorite = 1, date_added = :dateAdded
 WHERE _id IN :mangaIds AND favorite = 0;
+
+-- Import-only insert: never overwrite existing library titles or reading state.
+-- Unlike insertNetworkManga, this performs no per-entry UPDATE or SELECT.
+insertSourceImportNetworkManga:
+INSERT INTO mangas(
+    source, url, artist, author, description, genre, title, status, thumbnail_url, favorite,
+    last_update, next_update, initialized, viewer, chapter_flags, cover_last_modified, date_added,
+    update_strategy, calculate_interval, last_modified_at, version, memo
+)
+SELECT
+    :source, :url, :artist, :author, :description, :genre, :title, :status, :thumbnailUrl, :favorite,
+    :lastUpdate, :nextUpdate, :initialized, :viewerFlags, :chapterFlags, :coverLastModified, :dateAdded,
+    :updateStrategy, :calculateInterval, 0, :version, :memo
+WHERE NOT EXISTS (SELECT 1 FROM mangas WHERE source = :source AND url = :url);
+
+getSourceImportNetworkManga:
+SELECT _id, url, favorite
+FROM mangas
+WHERE source = :sourceId AND url IN :urls
+ORDER BY _id ASC;

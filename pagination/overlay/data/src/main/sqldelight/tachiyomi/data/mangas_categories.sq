@@ -28,8 +28,13 @@ WHERE manga_id = :mangaId;
 
 -- Source imports replace category membership for a whole batch in one statement.
 deleteSourceImportCategories:
-DELETE FROM mangas_categories WHERE manga_id IN :mangaIds;
+DELETE FROM mangas_categories WHERE manga_id IN :mangaIds AND category_id != :categoryId;
 
 insertSourceImportCategories:
 INSERT INTO mangas_categories(manga_id, category_id)
-SELECT _id, :categoryId FROM mangas WHERE _id IN :mangaIds;
+SELECT m._id, :categoryId FROM mangas AS m
+WHERE m._id IN :mangaIds
+AND NOT EXISTS (
+    SELECT 1 FROM mangas_categories AS existing
+    WHERE existing.manga_id = m._id AND existing.category_id = :categoryId
+);

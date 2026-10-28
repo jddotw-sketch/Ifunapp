@@ -12,6 +12,7 @@ import tachiyomi.domain.manga.model.Manga
 import tachiyomi.domain.manga.model.MangaUpdate
 import tachiyomi.domain.manga.model.MangaWithChapterCount
 import tachiyomi.domain.manga.repository.MangaRepository
+import tachiyomi.domain.manga.repository.SourceImportManga
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -106,7 +107,7 @@ class MangaRepositoryImpl(
             val added = mangasQueries.countSourceImportAdditions(ids).executeAsOne().toInt()
             // Replacing category assignments set-wise avoids two prepared statements
             // per manga, while retaining the old replace-all category semantics.
-            mangas_categoriesQueries.deleteSourceImportCategories(ids)
+            mangas_categoriesQueries.deleteSourceImportCategories(ids, categoryId)
             mangas_categoriesQueries.insertSourceImportCategories(categoryId, ids)
             mangasQueries.addSourceImportToLibrary(dateAdded, ids)
             added
@@ -130,6 +131,57 @@ class MangaRepositoryImpl(
         } catch (e: Exception) {
             logcat(LogPriority.ERROR, e)
             false
+        }
+    }
+
+    /**
+     * Insert new source entries without the two redundant statements and full-row
+     * mapping used by regular browsing. Preserve existing library records exactly.
+     * All inserts and the compact lookup run in one transaction per page.
+     */
+    override suspend fun insertNetworkMangaForImport(manga: List<Manga>): List<SourceImportManga> {
+        if (manga.isEmpty()) return emptyList()
+        val unique = manga.distinctBy { it.url }
+        val sourceId = unique.first().source
+        check(unique.all { it.source == sourceId }) { "Source import must have one source per batch" }
+        return handler.await(inTransaction = true) {
+            unique.forEach {
+                mangasQueries.insertSourceImportNetworkManga(
+                    source = it.source,
+                    url = it.url,
+                    title = it.ogTitle,
+                    artist = it.ogArtist,
+                    author = it.ogAuthor,
+                    thumbnailUrl = it.ogThumbnailUrl,
+                    description = it.ogDescription,
+                    genre = it.ogGenre,
+                    status = it.ogStatus,
+                    favorite = it.favorite,
+                    lastUpdate = it.lastUpdate,
+                    nextUpdate = it.nextUpdate,
+                    calculateInterval = it.fetchInterval.toLong(),
+                    initialized = it.initialized,
+                    viewerFlags = it.viewerFlags,
+                    chapterFlags = it.chapterFlags,
+                    coverLastModified = it.coverLastModified,
+                    dateAdded = it.dateAdded,
+                    updateStrategy = it.updateStrategy,
+                    version = it.version,
+                    memo = it.memo,
+                )
+            }
+            // Keep bound IN clauses under Android SQLite's older 999-parameter limit.
+            val found = unique.chunked(400).flatMap { entries ->
+                mangasQueries.getSourceImportNetworkManga(
+                    sourceId,
+                    entries.map { it.url },
+                ) { id, url, favorite -> SourceImportManga(id, url, favorite) }.executeAsList()
+            }
+            // Match the previous SELECT ... LIMIT 1 behavior if an old database
+            // happens to contain multiple records with a source/url pair.
+            val byUrl = linkedMapOf<String, SourceImportManga>()
+            found.forEach { byUrl.putIfAbsent(it.url, it) }
+            unique.map { checkNotNull(byUrl[it.url]) { "Source import record missing after insert: ${it.url}" } }
         }
     }
 

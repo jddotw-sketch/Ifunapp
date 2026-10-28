@@ -10,7 +10,7 @@ import java.time.Instant
 class ImportMangaToLibrary(private val repository: MangaRepository) {
 
     suspend fun await(mangaIds: List<Long>, categoryId: Long, onSaved: (Int, Int) -> Unit) {
-        for (batch in mangaIds.distinct().chunked(100)) {
+        for (batch in mangaIds.distinct().chunked(400)) {
             currentCoroutineContext().ensureActive()
             withContext(NonCancellable) {
                 val added = repository.importToLibrary(batch, categoryId, Instant.now().toEpochMilli())

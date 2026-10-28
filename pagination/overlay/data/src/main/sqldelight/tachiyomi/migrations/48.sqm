@@ -1,0 +1,2 @@
+-- Existing installations need the same composite lookup index as new databases.
+CREATE INDEX IF NOT EXISTS idx_mangas_source_url_import ON mangas(source, url);
