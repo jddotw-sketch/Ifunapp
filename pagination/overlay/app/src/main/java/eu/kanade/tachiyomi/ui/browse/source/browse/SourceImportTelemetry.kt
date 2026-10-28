@@ -93,8 +93,8 @@ internal class SourceImportTelemetry(
     private val restoredAdded: Int = 0,
     private val restoredExisting: Int = 0,
     private val restoredPages: Int = 0,
-    private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 },
     errorLogFile: File? = null,
+    private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 },
 ) {
 
     private val errorLog = errorLogFile?.let(::SourceImportErrorHistory)
