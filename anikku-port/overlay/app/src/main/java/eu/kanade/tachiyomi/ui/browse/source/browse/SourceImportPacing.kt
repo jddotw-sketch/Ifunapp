@@ -18,7 +18,7 @@ internal class SourceImportPacing(
     private fun isThrottled(error: Throwable?): Boolean {
         if (error == null) return false
         val detail = "${error.message.orEmpty()} ${error.javaClass.simpleName}"
-        return Regex("""\\b(429|too many requests|rate limit|throttl)\\b""", RegexOption.IGNORE_CASE).containsMatchIn(detail)
+        return Regex("""\b(429|too many requests|rate limit|throttl)\b""", RegexOption.IGNORE_CASE).containsMatchIn(detail)
     }
 
     private suspend fun cooldown(onRetry: (Long?) -> Unit, error: Throwable?, attempt: Int) {
