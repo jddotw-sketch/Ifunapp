@@ -75,6 +75,13 @@ internal class SourceImportLoader(
                             telemetry?.sent()
                         }
                     }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    // Child coroutine errors must be delivered to the consumer.
+                    // Otherwise the parent's cancellation hides the real reason
+                    // and Android cannot apply the checkpoint retry policy.
+                    pages.close(error)
                 } finally {
                     pages.close()
                 }
@@ -88,7 +95,10 @@ internal class SourceImportLoader(
                     } finally {
                         telemetry?.received()
                     }
-                    if (received.isClosed) break
+                    if (received.isClosed) {
+                        received.exceptionOrNull()?.let { throw it }
+                        break
+                    }
                     val (key, page) = received.getOrThrow()
                     telemetry?.taken()
                     telemetry?.saving()
