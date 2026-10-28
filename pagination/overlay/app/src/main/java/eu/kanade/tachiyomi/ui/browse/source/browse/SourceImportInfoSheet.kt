@@ -98,6 +98,7 @@ fun SourceImportInfoSheet(
         stringResource(KMR.strings.source_import_queue_time) to stringResource(KMR.strings.source_import_milliseconds, stats.queueWaitMillis),
         stringResource(KMR.strings.source_import_error_counts) to "${stats.errors} / ${stats.recoveries}",
     )
+    val errorHistory = stats.errorHistory.asReversed()
     val explanation = stringResource(KMR.strings.source_import_diagnostics_note)
     val lastSlowdown = stats.lastSlowdown
     val slowdownHistory = stats.slowdownHistory.takeLast(5).asReversed()
@@ -120,6 +121,10 @@ fun SourceImportInfoSheet(
             slowdownHistory.forEach { issue ->
                 appendLine("Page ${issue.pageKey ?: "?"}: ${issue.cause}; ${issue.action}")
             }
+        }
+        if (errorHistory.isNotEmpty()) {
+            appendLine("Recent errors (newest first):")
+            errorHistory.forEach { appendLine(it) }
         }
         append(explanation)
     }
@@ -170,6 +175,12 @@ fun SourceImportInfoSheet(
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
+            }
+            if (errorHistory.isNotEmpty()) {
+                HorizontalDivider()
+                Text("Actual error log (newest first)", style = MaterialTheme.typography.titleMedium)
+                errorHistory.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+                Text("Use Copy diagnostics to share the report", style = MaterialTheme.typography.bodySmall)
             }
             Text(explanation, style = MaterialTheme.typography.bodySmall)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

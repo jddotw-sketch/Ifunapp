@@ -147,6 +147,7 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
             restoredAdded = journal.added,
             restoredExisting = journal.existing,
             restoredPages = journal.pages,
+            errorLogFile = File(store.directory, "import-errors.log"),
         )
         journal.status(SourceImportStatus.RUNNING)
         publish(store, journal, telemetry)

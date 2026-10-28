@@ -1,5 +1,7 @@
 package eu.kanade.tachiyomi.ui.browse.source.browse
 
+import java.io.File
+
 /**
  * One source-side slowdown or recovery action. The reason is intentionally
  * diagnostic-only and does not contain source URLs or authentication tokens.
@@ -68,6 +70,7 @@ data class SourceImportStats(
     val restoredPages: Int = 0,
     val lastSlowdown: SourceImportSlowdown? = null,
     val slowdownHistory: List<SourceImportSlowdown> = emptyList(),
+    val errorHistory: List<String> = emptyList(),
 ) {
     val averageItemsPerSecond: Double get() = (added + existing - restoredItems) * 1_000.0 / elapsedMillis.coerceAtLeast(1)
     val pagesPerMinute: Double get() = (savedPages - restoredPages) * 60_000.0 / elapsedMillis.coerceAtLeast(1)
@@ -91,8 +94,10 @@ internal class SourceImportTelemetry(
     private val restoredExisting: Int = 0,
     private val restoredPages: Int = 0,
     private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000 },
+    errorLogFile: File? = null,
 ) {
 
+    private val errorLog = errorLogFile?.let(::SourceImportErrorHistory)
     private val limit = preloadPages.coerceIn(1, 64)
     private val startedAt = nowMillis()
     private var endedAt: Long? = null
@@ -149,11 +154,13 @@ internal class SourceImportTelemetry(
         errors++
         failedPageKey = pageKey
         failedCause = sourceImportExplainFailure(error)
+        runCatching { errorLog?.add(pageKey, error, "Retrying failed page") }
     }
 
     @Synchronized
     fun slowdown(pageKey: Int?, error: Throwable?, action: String) {
         appendSlowdown(pageKey, sourceImportExplainFailure(error), action, null)
+        runCatching { errorLog?.add(pageKey, error, action) }
     }
 
     private fun appendSlowdown(pageKey: Int?, cause: String, action: String, interval: Long?) {
@@ -287,6 +294,7 @@ internal class SourceImportTelemetry(
             restoredPages = restoredPages,
             lastSlowdown = slowdowns.lastOrNull(),
             slowdownHistory = slowdowns.toList(),
+            errorHistory = errorLog?.recent().orEmpty(),
         )
     }
 
