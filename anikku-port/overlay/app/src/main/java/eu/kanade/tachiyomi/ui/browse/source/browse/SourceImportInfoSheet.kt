@@ -97,6 +97,12 @@ fun SourceImportInfoSheet(
         stringResource(KMR.strings.source_import_busy_time) to stringResource(KMR.strings.source_import_milliseconds, stats.savingMillis),
         stringResource(KMR.strings.source_import_queue_time) to stringResource(KMR.strings.source_import_milliseconds, stats.queueWaitMillis),
         stringResource(KMR.strings.source_import_error_counts) to "${stats.errors} / ${stats.recoveries}",
+        "Actual library insert + categories" to "${stats.libraryWriteMillis} ms / ${stats.libraryWriteItems} items",
+        "Library insert · ms per 100 items" to if (stats.libraryWriteItems == 0) noSample else {
+            String.format(Locale.ROOT, "%.1f", stats.libraryWriteMillis * 100.0 / stats.libraryWriteItems)
+        },
+        "Library write transactions" to stats.libraryWriteBatches.toString(),
+        "Catalog staging · database time" to "${stats.catalogStageMillis} ms / ${stats.catalogStageItems} items",
     )
     val errorHistory = stats.errorHistory.asReversed()
     val explanation = stringResource(KMR.strings.source_import_diagnostics_note)

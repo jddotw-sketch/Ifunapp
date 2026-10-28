@@ -42,6 +42,9 @@ interface MangaRepository {
 
     suspend fun importToLibrary(mangaIds: List<Long>, categoryId: Long, dateAdded: Long): Int
 
+    /** Importer-only write that skips an unnecessary library-membership count query. */
+    suspend fun importToLibraryFast(mangaIds: List<Long>, categoryId: Long, dateAdded: Long)
+
     suspend fun insertNetworkMangaForImport(manga: List<Manga>): List<SourceImportManga>
 
     suspend fun update(update: MangaUpdate): Boolean

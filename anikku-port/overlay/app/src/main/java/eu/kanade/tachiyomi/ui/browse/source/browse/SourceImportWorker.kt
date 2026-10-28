@@ -37,7 +37,6 @@ import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.domain.category.interactor.CreateCategoryWithName
 import tachiyomi.domain.category.interactor.GetCategories
 import tachiyomi.domain.manga.repository.MangaRepository
-import java.time.Instant
 import tachiyomi.domain.manga.interactor.NetworkToLocalManga
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.i18n.kmk.KMR
@@ -215,7 +214,12 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                             is CreateCategoryWithName.Result.InternalError -> throw result.error
                         }
                     for (batch in group.ids.distinct().chunked(400)) {
-                        importManga.importToLibrary(batch, target.id, Instant.now().toEpochMilli())
+                        currentCoroutineContext().ensureActive()
+                        val started = System.nanoTime()
+                        withContext(NonCancellable) {
+                            importManga.importToLibraryFast(batch, target.id, System.currentTimeMillis())
+                        }
+                        telemetry.libraryWrite(batch.size, (System.nanoTime() - started) / 1_000_000)
                     }
                 }
             }
