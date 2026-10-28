@@ -114,6 +114,20 @@ class MangaRepositoryImpl(
         }
     }
 
+    /**
+     * Same library/category updates as importToLibrary, but without counting
+     * additions that the importer already tracks in its durable journal.
+     */
+    override suspend fun importToLibraryFast(mangaIds: List<Long>, categoryId: Long, dateAdded: Long) {
+        if (mangaIds.isEmpty()) return
+        handler.await(inTransaction = true) {
+            val ids = mangaIds.distinct()
+            mangas_categoriesQueries.deleteSourceImportCategories(ids, categoryId)
+            mangas_categoriesQueries.insertSourceImportCategories(categoryId, ids)
+            mangasQueries.addSourceImportToLibrary(dateAdded, ids)
+        }
+    }
+
     override suspend fun update(update: MangaUpdate): Boolean {
         return try {
             partialUpdate(update)

@@ -71,6 +71,11 @@ data class SourceImportStats(
     val lastSlowdown: SourceImportSlowdown? = null,
     val slowdownHistory: List<SourceImportSlowdown> = emptyList(),
     val errorHistory: List<String> = emptyList(),
+    val libraryWriteMillis: Long = 0,
+    val libraryWriteItems: Int = 0,
+    val libraryWriteBatches: Int = 0,
+    val catalogStageMillis: Long = 0,
+    val catalogStageItems: Int = 0,
 ) {
     val averageItemsPerSecond: Double get() = (added + existing - restoredItems) * 1_000.0 / elapsedMillis.coerceAtLeast(1)
     val pagesPerMinute: Double get() = (savedPages - restoredPages) * 60_000.0 / elapsedMillis.coerceAtLeast(1)
@@ -116,6 +121,11 @@ internal class SourceImportTelemetry(
     private var failedPageKey: Int? = null
     private var failedCause: String? = null
     private val slowdowns = ArrayDeque<SourceImportSlowdown>()
+    private var libraryWriteMillis = 0L
+    private var libraryWriteItems = 0
+    private var libraryWriteBatches = 0
+    private var catalogStageMillis = 0L
+    private var catalogStageItems = 0
     private var loadMillis = 0L
     private var successfulRequests = 0
     private var waitingMillis = 0L
@@ -174,6 +184,19 @@ internal class SourceImportTelemetry(
             ),
         )
         while (slowdowns.size > 5) slowdowns.removeFirst()
+    }
+
+    @Synchronized
+    fun libraryWrite(count: Int, millis: Long) {
+        libraryWriteItems += count
+        libraryWriteMillis += millis.coerceAtLeast(0)
+        libraryWriteBatches++
+    }
+
+    @Synchronized
+    fun catalogStaging(count: Int, millis: Long) {
+        catalogStageItems += count
+        catalogStageMillis += millis.coerceAtLeast(0)
     }
 
     @Synchronized
@@ -295,6 +318,11 @@ internal class SourceImportTelemetry(
             lastSlowdown = slowdowns.lastOrNull(),
             slowdownHistory = slowdowns.toList(),
             errorHistory = errorLog?.recent().orEmpty(),
+            libraryWriteMillis = libraryWriteMillis,
+            libraryWriteItems = libraryWriteItems,
+            libraryWriteBatches = libraryWriteBatches,
+            catalogStageMillis = catalogStageMillis,
+            catalogStageItems = catalogStageItems,
         )
     }
 

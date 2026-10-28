@@ -34,7 +34,7 @@ import mihon.domain.manga.model.toDomainManga
 import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.domain.category.interactor.CreateCategoryWithName
 import tachiyomi.domain.category.interactor.GetCategories
-import tachiyomi.domain.manga.interactor.ImportMangaToLibrary
+import tachiyomi.domain.manga.repository.MangaRepository
 import tachiyomi.domain.manga.interactor.NetworkToLocalManga
 import tachiyomi.domain.source.service.SourceManager
 import tachiyomi.i18n.kmk.KMR
@@ -194,7 +194,7 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                     throw SourceImportPermanentFailure(applicationContext.stringResource(KMR.strings.source_import_changed_filters))
                 }
             }
-            val importManga = Injekt.get<ImportMangaToLibrary>()
+            val importManga = Injekt.get<MangaRepository>()
             // Resolve categories once, rather than running a category query
             // for every 100-entry database batch in a 300K-entry import.
             val categoryCache = getCategories.await()
@@ -211,7 +211,14 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                                 .first { it.name.equals(name, true) }.also { categoryCache[normalized] = it }
                             is CreateCategoryWithName.Result.InternalError -> throw result.error
                         }
-                    importManga.await(group.ids, target.id) { _, _ -> }
+                    for (batch in group.ids.distinct().chunked(400)) {
+                        currentCoroutineContext().ensureActive()
+                        val started = System.nanoTime()
+                        withContext(NonCancellable) {
+                            importManga.importToLibraryFast(batch, target.id, System.currentTimeMillis())
+                        }
+                        telemetry.libraryWrite(batch.size, (System.nanoTime() - started) / 1_000_000)
+                    }
                 }
             }
             suspend fun savePlan(plan: SourceImportPlan) {
