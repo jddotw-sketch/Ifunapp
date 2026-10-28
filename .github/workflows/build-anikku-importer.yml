@@ -1,0 +1,60 @@
+name: Build Anikku importer port
+on:
+  push:
+    branches: [anikku-importer-port]
+    paths: ['anikku-port/**', '.github/workflows/build-anikku-importer.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: anikku-importer-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - name: Checkout port
+        uses: actions/checkout@v4
+      - name: Checkout upstream Anikku
+        uses: actions/checkout@v4
+        with:
+          repository: komikku-app/anikku
+          ref: 6e35b41f0cc7e375d15527bd61375435f998685a
+          path: anikku
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Apply Anikku importer overlay, preserving existing translations
+        run: |
+          cp -a anikku-port/overlay/. anikku/
+          git -C anikku checkout HEAD -- i18n-kmk/src/commonMain/moko-resources/base/strings.xml
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          original=Path("anikku/i18n-kmk/src/commonMain/moko-resources/base/strings.xml")
+          additions=Path("anikku-port/overlay/i18n-kmk/src/commonMain/moko-resources/base/strings.xml")
+          root=ET.parse(original).getroot()
+          defined={e.attrib.get("name") for e in root}
+          for new in ET.parse(additions).getroot():
+              if new.attrib.get("name") not in defined:
+                  root.append(new)
+          ET.ElementTree(root).write(original,encoding="utf-8",xml_declaration=True)
+          PY
+      - name: Format and check importer
+        working-directory: anikku
+        run: |
+          chmod +x gradlew
+          ./gradlew spotlessApply --stacktrace
+          ./gradlew :app:testDebugUnitTest --tests 'eu.kanade.tachiyomi.ui.browse.source.browse.SourceImport*Test' --stacktrace
+      - name: Assemble debug APK
+        working-directory: anikku
+        run: ./gradlew assembleDebug --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Anikku-Importer-Debug-APK
+          path: anikku/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
