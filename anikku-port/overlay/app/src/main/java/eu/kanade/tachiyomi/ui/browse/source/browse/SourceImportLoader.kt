@@ -68,8 +68,15 @@ internal class SourceImportLoader(
                             telemetry?.sent()
                         }
                     }
-                } finally {
                     pages.close()
+                } catch (error: CancellationException) {
+                    pages.cancel()
+                    throw error
+                } catch (error: Throwable) {
+                    // A failed producer is NOT end-of-catalog. Surface the cause
+                    // so WorkManager retries from the committed checkpoint.
+                    pages.close(error)
+                    throw error
                 }
             }
             var repeatedPageKey: Int? = null
@@ -81,7 +88,10 @@ internal class SourceImportLoader(
                     } finally {
                         telemetry?.received()
                     }
-                    if (received.isClosed) break
+                    if (received.isClosed) {
+                        received.exceptionOrNull()?.let { throw it }
+                        break
+                    }
                     val (key, page) = received.getOrThrow()
                     telemetry?.taken()
                     telemetry?.saving()
@@ -209,7 +219,7 @@ internal class SourceImportLoader(
                         // Cancelled jobs may have queued responses just before cancellation.
                         // Drain those responses before reusing page keys for the retry generation.
                         while (completed.tryReceive().isSuccess) {}
-                        pacing.recover(::retry)
+                        pacing.recover(::retry, next.exceptionOrNull())
                         val recovered = pacing.fetch(::retry) { requestPage(nextEmitKey, request) }
                         if (recovered.mangas.isEmpty()) return@coroutineScope
                         emit(nextEmitKey, recovered)
