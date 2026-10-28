@@ -99,7 +99,7 @@ internal class SourceImportStore private constructor(val directory: File, var co
                 null
             } ?: return
             lock.use {
-                listOf("config", "config.tmp", "pause", "journal", "save-request", "save-request.tmp").forEach {
+                listOf("config", "config.tmp", "pause", "journal", "save-request", "save-request.tmp", "retry-state").forEach {
                     File(directory, it).delete()
                 }
                 File(directory, "page-spool").deleteRecursively()
