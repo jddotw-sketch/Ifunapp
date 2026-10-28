@@ -13,7 +13,7 @@ class NetworkToLocalManga(
      * If `false`, it will only insert the manga if it doesn't exist in the database. This is used to avoid the case when fetching
      * related mangas from within `MangaScreenModel` would overwrite current manga's `getDetails` info with info from browsing.
      */
-    /** Import-specific fast path: insert missing records and select only ids/favorite flags. */
+    // Import-specific fast path: insert missing records and select only ids/favorite flags.
     suspend fun forSourceImport(manga: List<Manga>): List<SourceImportManga> =
         mangaRepository.insertNetworkMangaForImport(manga)
 
