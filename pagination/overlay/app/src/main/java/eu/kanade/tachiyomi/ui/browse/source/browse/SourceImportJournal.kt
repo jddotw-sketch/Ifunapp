@@ -42,8 +42,13 @@ internal class SourceImportPageTracker(private val completedIds: Set<Long>) {
     fun prepare(key: Int, nextKey: Int?, items: List<SourceImportItem>): SourceImportPlan? {
         val unique = items.distinctBy { it.id }
         if (unique.isEmpty() || unique.all { it.id in observedIds }) return null
+        // Filter previously observed items BEFORE updating the set. Sources can
+        // return partially overlapping pages when new items are added during import.
+        // Previously those duplicates entered the batch and tripped planBatch's
+        // distinct-ID invariant after tens of thousands of entries.
+        val newItems = unique.filterNot { it.id in observedIds || it.id in completedIds }
         observedIds.addAll(unique.map { it.id })
-        return SourceImportPlan(key, nextKey, unique.filterNot { it.id in completedIds })
+        return SourceImportPlan(key, nextKey, newItems)
     }
 }
 
@@ -233,9 +238,15 @@ internal class SourceImportJournal(private val file: File, repair: Boolean = fal
     }
 
     fun plan(value: SourceImportPlan) {
-        check(pending == null && pendingBatch == null && value.key == nextKey)
-        check(value.items.size <= 10_000 && value.items.map { it.id }.distinct().size == value.items.size)
-        check(value.items.none { it.id in seenIds })
+        check(pending == null && pendingBatch == null && value.key == nextKey) {
+            "Journal cannot stage page ${value.key}; expected $nextKey and no pending write"
+        }
+        check(value.items.size <= 10_000 && value.items.map { it.id }.distinct().size == value.items.size) {
+            "Invalid or duplicated manga IDs in source import page ${value.key}"
+        }
+        check(value.items.none { it.id in seenIds }) {
+            "Page ${value.key} includes already committed manga IDs"
+        }
         append {
             writeByte(1)
             writeInt(value.key)
@@ -254,11 +265,23 @@ internal class SourceImportJournal(private val file: File, repair: Boolean = fal
     // Record types 4 and 5 are compatible with existing single-page journal
     // records. One durable plan and one durable commit cover multiple pages.
     fun planBatch(plans: List<SourceImportPlan>) {
-        check(pending == null && pendingBatch == null && plans.isNotEmpty() && plans.size <= 8)
-        check(plans.first().key == nextKey)
-        check(plans.zipWithNext().all { (a, b) -> a.nextKey == b.key })
+        check(pending == null && pendingBatch == null && plans.isNotEmpty() && plans.size <= 8) {
+            "Cannot stage source import batch: pending write or invalid page count"
+        }
+        check(plans.first().key == nextKey) {
+            "Source import journal expected page $nextKey but received ${plans.first().key}"
+        }
+        check(plans.zipWithNext().all { (a, b) -> a.nextKey == b.key }) {
+            "Nonconsecutive source import pages in batch beginning at ${plans.first().key}"
+        }
         val ids = plans.flatMap { it.items.map(SourceImportItem::id) }
-        check(ids.size <= 10_000 && ids.distinct().size == ids.size && ids.none { it in seenIds })
+        check(ids.size <= 10_000) { "Source import batch exceeds 10,000 manga IDs" }
+        check(ids.distinct().size == ids.size) {
+            "Duplicate manga IDs across source import pages ${plans.first().key}..${plans.last().key}"
+        }
+        check(ids.none { it in seenIds }) {
+            "Source import batch contains already committed manga IDs near page ${plans.first().key}"
+        }
         append {
             writeByte(4)
             writeInt(plans.size)

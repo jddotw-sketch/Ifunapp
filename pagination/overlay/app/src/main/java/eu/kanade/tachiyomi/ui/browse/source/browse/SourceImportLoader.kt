@@ -2,6 +2,9 @@ package eu.kanade.tachiyomi.ui.browse.source.browse
 
 import eu.kanade.tachiyomi.source.model.MangasPage
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
+import java.io.IOException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -36,7 +39,11 @@ internal class SourceImportLoader(
         val startedAt = nowMillis()
         telemetry?.requestStarted()
         try {
-            val page = request(key)
+            val page = try {
+                withTimeout(120_000L) { request(key) }
+            } catch (error: TimeoutCancellationException) {
+                throw IOException("Source import page $key timed out after 120 seconds", error)
+            }
             telemetry?.requestCompleted(nowMillis() - startedAt, page.mangas.isNotEmpty())
             return page
         } catch (error: CancellationException) {
@@ -104,7 +111,9 @@ internal class SourceImportLoader(
                 telemetry?.clearQueue()
             }
             val retryKey = repeatedPageKey ?: break
-            if (usesCursor || slowMode || parallelDisabled || preloadPages == 1) break
+            if (usesCursor || slowMode || parallelDisabled || preloadPages == 1) {
+                error("Catalog page $retryKey repeated or contained no new entries even in sequential mode")
+            }
             parallelDisabled = true
             onSequentialFallback()
             telemetry?.mode(SourceImportStats.Mode.REPEATED_FALLBACK, 1)
