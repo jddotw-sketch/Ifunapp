@@ -95,7 +95,7 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
         throw error
     } catch (error: Exception) {
         val message = error.message ?: error.javaClass.simpleName
-        if (runAttemptCount < 12) {
+        if (sourceImportShouldRetry(error)) {
             SourceImportManager.retrying(sourceId, message, inputData.getString("jobId"))
             Result.retry()
         } else {
@@ -159,7 +159,7 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                     this@coroutineScope.cancel()
                     break
                 }
-                // Notification failure must not cancel a long-running import.
+                // Notification failures must not cancel a long-running import.
                 try {
                     publish(store, journal, telemetry)
                     applicationContext.notify(notificationId, notification())
@@ -173,9 +173,8 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
             setForeground(getForegroundInfo())
             val sourceManager = Injekt.get<SourceManager>()
             sourceManager.isInitialized.first { it }
-            val source = checkNotNull(sourceManager.get(sourceId) as? CatalogueSource) {
-                applicationContext.stringResource(KMR.strings.source_import_missing_source)
-            }
+            val source = (sourceManager.get(sourceId) as? CatalogueSource)
+                ?: throw SourceImportPermanentFailure(applicationContext.stringResource(KMR.strings.source_import_missing_source))
             val getCategories = Injekt.get<GetCategories>()
             val category = getCategories.await().firstOrNull { it.id == store.config.categoryId }
                 ?: getCategories.await().firstOrNull { !it.isSystemCategory && it.name.equals(source.name, true) }
@@ -189,10 +188,12 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
             if (store.config.listing == "SEARCH") {
                 val saved = Json.decodeFromString<JsonArray>(store.config.filters)
                 val serializer = FilterSerializer()
-                check(filters.size == saved.size) { applicationContext.stringResource(KMR.strings.source_import_changed_filters) }
+                if (filters.size != saved.size) {
+                    throw SourceImportPermanentFailure(applicationContext.stringResource(KMR.strings.source_import_changed_filters))
+                }
                 serializer.deserialize(filters, saved)
-                check(serializer.serialize(filters) == saved) {
-                    applicationContext.stringResource(KMR.strings.source_import_changed_filters)
+                if (serializer.serialize(filters) != saved) {
+                    throw SourceImportPermanentFailure(applicationContext.stringResource(KMR.strings.source_import_changed_filters))
                 }
             }
             val importManga = Injekt.get<MangaRepository>()
@@ -319,8 +320,8 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                     val plan = pageTracker.prepare(key, next, mangas.map { SourceImportItem(it.id, !it.favorite) })
                     if (plan == null) {
                         flushPendingPages()
-                        // Retry the same page without concurrent loads. A persistent
-                        // duplicate is escalated for checkpoint-based recovery.
+                        // Parallel sources sometimes repeat a page. Re-request this
+                        // key sequentially instead of failing the whole import.
                         return false
                     }
                     pendingPages.add(plan)
@@ -382,7 +383,7 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                             } catch (error: CancellationException) {
                                 throw error
                             } catch (error: Exception) {
-                                // Surface network failures instead of silently ending the catalog.
+                                // Surface the actual downloader fault to the saver.
                                 downloaderFailure.set(error)
                             } finally {
                                 downloaderDone.set(true)
@@ -454,8 +455,8 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
             Result.success()
         } catch (error: CancellationException) {
             withContext(NonCancellable) {
-                // Android can cancel background work for network constraints.
-                // Only an explicit Pause button should mark the import PAUSED.
+                // Network/battery constraints can cancel running work. Such a stop
+                // is not a user pause and must be eligible for WorkManager restart.
                 if (SourceImportManager.isCurrent(store)) {
                     journal.status(if (store.pauseRequested) SourceImportStatus.PAUSED else SourceImportStatus.QUEUED)
                 }
@@ -464,7 +465,7 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
         } catch (error: Exception) {
             val page = journal.nextKey
             val attempts = SourceImportRetryTracker(File(store.directory, "retry-state")).record(page)
-            val retry = attempts <= 24 && !store.pauseRequested && SourceImportManager.isCurrent(store)
+            val retry = sourceImportShouldRetry(error) && !store.pauseRequested && SourceImportManager.isCurrent(store)
             val detail = "Page ${page ?: "end"}, failure $attempts: ${error.message ?: error.javaClass.simpleName}"
             journal.status(if (retry) SourceImportStatus.QUEUED else SourceImportStatus.FAILED, detail)
             if (retry) Result.retry() else Result.failure()
