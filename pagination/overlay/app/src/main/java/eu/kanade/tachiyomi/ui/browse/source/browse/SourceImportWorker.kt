@@ -98,7 +98,7 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
         throw error
     } catch (error: Exception) {
         SourceImportManager.failed(sourceId, error.message ?: error.javaClass.simpleName, inputData.getString("jobId"))
-        Result.failure()
+        if (runAttemptCount < 8) Result.retry() else Result.failure()
     }
 
     private suspend fun runImport(): Result = withContext(Dispatchers.IO) {
@@ -275,11 +275,22 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                     pendingPages.clear()
                 }
                 suspend fun requestCatalogPage(key: Int): MangasPage {
-                    val page = when (store.config.listing) {
-                        "POPULAR" -> source.getPopularManga(key)
-                        "LATEST" -> source.getLatestUpdates(key)
-                        "SEARCH" -> source.getSearchManga(key, store.config.query, filters)
-                        else -> error("Invalid saved listing")
+                    var page: MangasPage
+                    var emptyAttempts = 0
+                    while (true) {
+                        page = when (store.config.listing) {
+                            "POPULAR" -> source.getPopularManga(key)
+                            "LATEST" -> source.getLatestUpdates(key)
+                            "SEARCH" -> source.getSearchManga(key, store.config.query, filters)
+                            else -> error("Invalid saved listing")
+                        }
+                        if (page.mangas.isNotEmpty()) break
+                        // Empty pages can mean throttling, an expired session, or
+                        // a temporary extension failure. Do not mark the catalog complete.
+                        if (++emptyAttempts >= 3) {
+                            error("Catalog returned an empty page at $key after 3 attempts; will retry checkpoint")
+                        }
+                        delay(1_000L * emptyAttempts)
                     }
                     if (!source.isEhBasedSource() && !page.hasNextPage &&
                         key < store.config.minimumPages && page.mangas.isNotEmpty()
@@ -292,9 +303,8 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
                 }
                 suspend fun processPage(key: Int, next: Int?, pageMangas: List<eu.kanade.tachiyomi.source.model.SManga>): Boolean {
                     currentCoroutineContext().ensureActive()
-                    val mangas = Injekt.get<NetworkToLocalManga>()(
+                    val mangas = Injekt.get<NetworkToLocalManga>().forSourceImport(
                         pageMangas.distinctBy { it.url }.map { it.toDomainManga(sourceId) },
-                        updateInfo = false,
                     )
                     val plan = pageTracker.prepare(key, next, mangas.map { SourceImportItem(it.id, !it.favorite) })
                     if (plan == null) {
@@ -424,7 +434,13 @@ class SourceImportWorker(context: Context, parameters: WorkerParameters) : Corou
             throw error
         } catch (error: Exception) {
             journal.status(SourceImportStatus.FAILED, error.message ?: error.javaClass.simpleName)
-            Result.failure()
+            if (!store.pauseRequested && runAttemptCount < 8 && SourceImportManager.isCurrent(store)) {
+                // WorkManager retries with exponential backoff from the last
+                // committed checkpoint; user pause and replacement are excluded.
+                Result.retry()
+            } else {
+                Result.failure()
+            }
         } finally {
             ticker.cancel()
             telemetry.finish()

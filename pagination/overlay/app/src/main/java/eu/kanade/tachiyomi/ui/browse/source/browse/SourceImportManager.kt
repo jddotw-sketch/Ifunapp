@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.ui.browse.source.browse
 
 import android.app.Application
+import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
@@ -16,6 +17,7 @@ import kotlinx.coroutines.sync.withLock
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.File
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.ConcurrentHashMap
 
 internal data class SourceImportBackgroundState(
@@ -121,6 +123,7 @@ internal object SourceImportManager {
         val request = OneTimeWorkRequestBuilder<SourceImportWorker>()
             .setInputData(workDataOf("sourceId" to config.sourceId, "jobId" to config.id, "sourceName" to config.sourceName))
             .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.SECONDS)
             .addTag("SourceImport")
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(workName(config.sourceId), policy, request).result.get()
