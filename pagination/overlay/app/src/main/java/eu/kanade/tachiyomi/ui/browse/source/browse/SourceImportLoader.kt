@@ -28,7 +28,12 @@ internal class SourceImportLoader(
     private val pacing = SourceImportPacing(slowMode, initialPageDelayMillis)
     private var parallelDisabled = forceSequential
     val preloadPages = preloadPages.coerceIn(1, 64)
-    private val tuner = if (automatic && !slowMode && !usesCursor) SourceImportAutoTuner(nowMillis, this.preloadPages) else null
+    private val congestion = SourceImportCongestionControl(this.preloadPages, initialPageDelayMillis)
+    private val tuner = if (automatic && !slowMode && !usesCursor) {
+        SourceImportAutoTuner(nowMillis, this.preloadPages, startingLimit = minOf(8, this.preloadPages))
+    } else {
+        null
+    }
 
     private fun retry(delayMillis: Long?) {
         telemetry?.retry(delayMillis)
@@ -155,7 +160,7 @@ internal class SourceImportLoader(
             return@coroutineScope
         }
         if (firstPage.mangas.isEmpty()) return@coroutineScope
-        telemetry?.mode(SourceImportStats.Mode.PARALLEL, tuner?.target() ?: preloadPages)
+        telemetry?.mode(SourceImportStats.Mode.PARALLEL, congestion.clamp(tuner?.target() ?: preloadPages))
         tuner?.applyNext(firstKey + 1)
         tuner?.let { telemetry?.tuning(it.searching) }
         emit(firstKey, firstPage)
@@ -168,9 +173,11 @@ internal class SourceImportLoader(
         val ready = java.util.TreeMap<Int, Result<MangasPage>>()
         var nextRequestKey = firstKey + 1
         var nextEmitKey = firstKey + 1
-        var concurrency = tuner?.limit ?: preloadPages
-        var lookahead = (concurrency * 3).coerceAtLeast(16)
-        val maxLookahead = 512
+        var concurrency = congestion.clamp(tuner?.limit ?: preloadPages)
+        // A 512-page speculative window overwhelmed sources returning 429/404.
+        // Never request more than 64 pages ahead of the last saved page.
+        val maxLookahead = 64
+        var lookahead = (concurrency * 2).coerceAtLeast(8).coerceAtMost(maxLookahead)
         var upperBound: Int? = null
         var recoveringFromError = false
         var successfulRecoveryPages = 0
@@ -226,7 +233,7 @@ internal class SourceImportLoader(
                         // A transient failure should lower the request rate, not permanently
                         // disable parallel pagination or poison the saved checkpoint.
                         // Drain speculative requests and retry the exact missing page in order.
-                        concurrency = (concurrency / 2).coerceAtLeast(1)
+                        concurrency = congestion.onFailure(concurrency)
                         recoveringFromError = true
                         successfulRecoveryPages = 0
                         tuner?.pauseForRecovery()
@@ -254,10 +261,11 @@ internal class SourceImportLoader(
                     emit(nextEmitKey, page)
                     if (!page.hasNextPage) return@coroutineScope
                     nextEmitKey++
-                    // Only clamp ramp-up after an actual error. Do not interfere
-                    // with normal automatic tuning, which must be free to scale and settle.
+                    congestion.onSuccess()
+                    // Gradually restore request slots only after proven successful pages.
+                    // A new 429 halves the limit again; it never jumps back to 64.
                     if (recoveringFromError && ++successfulRecoveryPages >= 16) {
-                        val recoveryTarget = tuner?.limit ?: preloadPages
+                        val recoveryTarget = congestion.clamp(tuner?.limit ?: preloadPages)
                         if (concurrency < recoveryTarget) concurrency++
                         successfulRecoveryPages = 0
                         if (concurrency >= recoveryTarget) {
@@ -269,8 +277,11 @@ internal class SourceImportLoader(
 
                 if (!recoveringFromError && tuner?.hasChange() == true) {
                     tuner.applyNext(nextEmitKey)
-                    concurrency = tuner.limit.coerceIn(1, preloadPages)
-                    lookahead = maxOf(lookahead, concurrency * 3).coerceAtMost(maxLookahead)
+                    concurrency = congestion.clamp(tuner.limit)
+                    lookahead = maxOf(lookahead, concurrency * 2).coerceAtMost(maxLookahead)
+                }
+                if (!recoveringFromError) {
+                    concurrency = congestion.clamp(tuner?.limit ?: preloadPages)
                 }
                 telemetry?.mode(SourceImportStats.Mode.PARALLEL, concurrency)
                 tuner?.let { telemetry?.tuning(it.searching) }
