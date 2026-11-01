@@ -13,8 +13,6 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 70
-    env:
-      ANIKKU_VERSION_CODE: ${{ 1000000 + github.run_number }}
     steps:
       - name: Checkout port
         uses: actions/checkout@v4
@@ -29,6 +27,8 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
+      - name: Set increasing APK version
+        run: echo "ANIKKU_VERSION_CODE=$((1000000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
       - name: Apply importer, AllDebrid and launcher branding
         run: |
           cp -a anikku-port/overlay/. anikku/
