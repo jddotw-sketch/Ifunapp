@@ -97,7 +97,7 @@ class AllDebridClient(
                 checkError(item)
                 when (item["statusCode"]?.safePrimitive?.intOrNull) {
                     4 -> {
-                        val nodes = item["files"] as? JsonArray ?: run {
+                        val nodes = (item["files"] as? JsonArray)?.takeIf { it.isNotEmpty() } ?: run {
                             val fileData = request("v4/magnet/files", form("id[]", id.toString()), key)
                             val entry = objects(fileData["magnets"])
                                 .singleOrNull { it["id"]?.safePrimitive?.longOrNull == id } ?: fail(AllDebridFailure.RESPONSE)

@@ -34,7 +34,7 @@ class NyaaTorrentMetadataTest {
         val resolver = AllDebridResolver(mockk<Context>(), api, keys, network)
         val metadata = resolver.metadata("https://nyaa.si/download/123.torrent")
         assertEquals("test.mkv", metadata.name)
-        assertEquals(12, metadata.files.single().size)
+        assertEquals(12L, metadata.files.single().size)
         assertEquals(1, requests)
         verify(exactly = 0) { keys.read() }
         coVerify(exactly = 0) { api.torrent(any(), any()) }

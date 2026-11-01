@@ -12,8 +12,11 @@ Validation requires an active Premium account. Disable the switch to return to T
 Removing the key also disables AllDebrid. After restoring a backup on another device, enter the key again
 or turn the switch off; credentials are never included in app backups.
 
-Magnet links and HTTP(S) `.torrent` URLs (including query parameters) use AllDebrid for metadata,
-internal playback, downloads, casting and external playback. The shared resolver also accepts content-URI
+Magnet links and HTTP(S) `.torrent` URLs (including query parameters) use AllDebrid for
+internal playback, downloads, casting and external playback. File lists from `.torrent` metadata are read
+locally without an API key, cloud upload, torrent download or local P2P server. This lets Nyaa open its
+episode list immediately after fetching the small metadata file. Magnet-only metadata still uses AllDebrid.
+The shared resolver also accepts content-URI
 torrent files when called by a source. Other videos continue through their original source.
 Explicit file indexes use the existing TorrServer convention: 1-based, including non-video files;
 index 0 selects the first supported video. No silent selection of another episode occurs for an invalid index.
@@ -23,6 +26,16 @@ the app then asks the user to retry. The cloud job keeps running. A retry in the
 the submitted transfer. Closing playback cancels the app's request, not the user's cloud job.
 The app does not delete AllDebrid transfers. Cloud failures never start local torrenting automatically.
 Downloading and casting still depend on video format support in the receiving player.
+
+Nyaa browse cards with missing artwork resolve the extension's normal detail page when Coil requests
+the visible card's image. Requests are serialized, cancellable and cached; empty artwork and failures are
+temporarily cached to avoid repeated requests. Only the missing thumbnail is saved. Episode lists,
+AllDebrid transfers, titles and library membership are not touched by cover loading. Items without artwork
+in their description still use the normal placeholder. The attached extension package is supported unchanged.
+
+AllDebrid status/file responses accept either a single magnet object or an array, including string IDs.
+Inline ready-file lists are used when available. Service-returned HTTP or HTTPS media URLs are accepted;
+the API key is still sent only to the HTTPS API endpoint and never to those media hosts.
 
 ## API and credential handling
 
