@@ -5,7 +5,7 @@ import tachiyomi.core.common.preference.PreferenceStore
 class TorrentServerPreferences(
     private val preferenceStore: PreferenceStore,
 ) {
-    // ANK: Local TorrServer remains the default, including after backup restore.
+    // ANK: Local TorrServer remains the default; credentials are never stored in preference backups.
     fun useAllDebrid() = preferenceStore.getBoolean("pref_alldebrid_enabled", false)
 
     fun port() = preferenceStore.getString("pref_torrent_port", "8090")

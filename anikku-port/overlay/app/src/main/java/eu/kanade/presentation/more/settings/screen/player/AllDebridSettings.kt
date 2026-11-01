@@ -31,6 +31,7 @@ import kotlinx.coroutines.withContext
 import tachiyomi.i18n.MR
 import tachiyomi.i18n.ank.AMR
 import tachiyomi.presentation.core.i18n.stringResource
+import tachiyomi.presentation.core.util.collectAsState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 
@@ -43,6 +44,7 @@ internal fun getAllDebridGroup(preferences: TorrentServerPreferences): Preferenc
     var configured by remember { mutableStateOf(runCatching { keys.read().isNotBlank() }.getOrDefault(false)) }
     var dialog by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<AllDebridFailure?>(null) }
+    val enabled by preferences.useAllDebrid().collectAsState()
 
     if (dialog) {
         AllDebridKeyDialog(
@@ -57,7 +59,7 @@ internal fun getAllDebridGroup(preferences: TorrentServerPreferences): Preferenc
                 preference = preferences.useAllDebrid(),
                 title = stringResource(AMR.strings.alldebrid_enable),
                 subtitle = stringResource(AMR.strings.alldebrid_summary),
-                enabled = configured,
+                enabled = configured || enabled,
                 onValueChanged = {
                     if (it) TorrentServerService.stop()
                     true

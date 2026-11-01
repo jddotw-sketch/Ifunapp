@@ -21,13 +21,13 @@ merge_strings(target / 'i18n-kmk/src/commonMain/moko-resources/base/strings.xml'
 merge_strings(target / 'i18n-ank/src/commonMain/moko-resources/base/strings.xml',
               port / 'strings-alldebrid.xml')
 
-manifest = target / 'app/src/main/AndroidManifest.xml'
-text = manifest.read_text(encoding='utf-8')
-text = text.replace('android:label="@string/app_name"', 'android:label="@string/library_import_app_name"')
-# Existing users may already have an alternative launcher alias selected.
-text = text.replace('android:label="Anikun"', 'android:label="@string/library_import_app_name"')
-text = text.replace('android:label="Onigiri"', 'android:label="@string/library_import_app_name"')
-manifest.write_text(text, encoding='utf-8')
+for manifest in (target / 'app/src').glob('*/AndroidManifest.xml'):
+    text = manifest.read_text(encoding='utf-8')
+    text = text.replace('android:label="@string/app_name"', 'android:label="@string/library_import_app_name"')
+    # Existing users may already have an alternative launcher alias selected.
+    text = text.replace('android:label="Anikun"', 'android:label="@string/library_import_app_name"')
+    text = text.replace('android:label="Onigiri"', 'android:label="@string/library_import_app_name"')
+    manifest.write_text(text, encoding='utf-8')
 
 build = target / 'app/build.gradle.kts'
 text = build.read_text(encoding='utf-8')
