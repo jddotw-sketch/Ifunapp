@@ -1,7 +1,7 @@
 name: Build Anikku importer port
 on:
   push:
-    branches: [anikku-importer-port]
+    branches: [anikku-importer-port, 'feat/anikku-alldebrid']
     paths: ['anikku-port/**', '.github/workflows/build-anikku-importer.yml']
   workflow_dispatch:
 permissions:
@@ -13,6 +13,8 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     timeout-minutes: 70
+    env:
+      ANIKKU_VERSION_CODE: ${{ 1000000 + github.run_number }}
     steps:
       - name: Checkout port
         uses: actions/checkout@v4
@@ -27,34 +29,74 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
-      - name: Apply Anikku importer overlay, preserving existing translations
+      - name: Apply importer, AllDebrid and launcher branding
         run: |
           cp -a anikku-port/overlay/. anikku/
           git -C anikku checkout HEAD -- i18n-kmk/src/commonMain/moko-resources/base/strings.xml
-          python3 - <<'PY'
-          import xml.etree.ElementTree as ET
-          from pathlib import Path
-          original=Path("anikku/i18n-kmk/src/commonMain/moko-resources/base/strings.xml")
-          additions=Path("anikku-port/overlay/i18n-kmk/src/commonMain/moko-resources/base/strings.xml")
-          root=ET.parse(original).getroot()
-          defined={e.attrib.get("name") for e in root}
-          for new in ET.parse(additions).getroot():
-              if new.attrib.get("name") not in defined:
-                  root.append(new)
-          ET.ElementTree(root).write(original,encoding="utf-8",xml_declaration=True)
-          PY
-      - name: Format and check importer
+          python3 anikku-port/configure.py anikku
+      - name: Configure persistent signing when available
+        id: signing
+        env:
+          KEYSTORE: ${{ secrets.ANIKKU_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANIKKU_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANIKKU_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANIKKU_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE" ]; then
+            test -n "$STORE_PASSWORD" && test -n "$KEY_ALIAS" && test -n "$KEY_PASSWORD"
+            umask 077
+            printf '%s' "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/anikku-importer.jks"
+            echo "ANIKKU_KEYSTORE_PATH=$RUNNER_TEMP/anikku-importer.jks" >> "$GITHUB_ENV"
+            echo "ANIKKU_KEYSTORE_PASSWORD=$STORE_PASSWORD" >> "$GITHUB_ENV"
+            echo "ANIKKU_KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+            echo "ANIKKU_KEY_PASSWORD=$KEY_PASSWORD" >> "$GITHUB_ENV"
+            echo 'kind=Stable-Signed' >> "$GITHUB_OUTPUT"
+          else
+            echo 'kind=QA-Ephemeral-Signing' >> "$GITHUB_OUTPUT"
+            echo '::warning::No persistent signing secrets configured. This APK verifies the build but does not establish update compatibility.'
+          fi
+      - name: Format and check
         working-directory: anikku
         run: |
           chmod +x gradlew
           ./gradlew spotlessApply --stacktrace
-          ./gradlew :app:testDebugUnitTest --tests 'eu.kanade.tachiyomi.ui.browse.source.browse.SourceImport*Test' --stacktrace
-      - name: Assemble debug APK
+          ./gradlew spotlessCheck --stacktrace
+      - name: Test importer and AllDebrid
+        working-directory: anikku
+        run: ./gradlew :app:testDebugUnitTest --tests 'eu.kanade.tachiyomi.ui.browse.source.browse.SourceImport*Test' --tests 'eu.kanade.tachiyomi.alldebrid.*Test' --stacktrace
+      - name: Assemble APK
         working-directory: anikku
         run: ./gradlew assembleDebug --stacktrace
+      - name: Verify APK identity, version and signature
+        env:
+          SIGNING_KIND: ${{ steps.signing.outputs.kind }}
+        run: |
+          apk=$(find anikku/app/build/outputs/apk/debug -name '*universal*.apk' -print -quit)
+          test -n "$apk"
+          build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+          "$build_tools/apksigner" verify --verbose --print-certs "$apk" > anikku-apk-verification.txt
+          "$build_tools/aapt" dump badging "$apk" >> anikku-apk-verification.txt
+          grep -q "package: name='app.anikku.dev' versionCode='$ANIKKU_VERSION_CODE'" anikku-apk-verification.txt
+          grep -q "application-label:'Anikku Library Import'" anikku-apk-verification.txt
+          echo "Signing: $SIGNING_KIND" >> anikku-apk-verification.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: Anikku-Importer-Debug-APK
-          path: anikku/app/build/outputs/apk/debug/*.apk
+          name: Anikku-Library-Import-${{ steps.signing.outputs.kind }}
+          path: |
+            anikku/app/build/outputs/apk/debug/*.apk
+            anikku-apk-verification.txt
           if-no-files-found: error
           retention-days: 14
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Anikku-Verification-Reports
+          path: |
+            anikku/app/build/reports/tests/
+            anikku/app/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Remove temporary signing key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/anikku-importer.jks"
