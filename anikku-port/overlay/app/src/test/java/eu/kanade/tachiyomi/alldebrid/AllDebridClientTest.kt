@@ -34,8 +34,8 @@ class AllDebridClientTest {
     private fun client(timeout: Long = 5_000, pause: Long = 1, onRequest: (okhttp3.Request) -> Unit = {}): AllDebridClient {
         val http = AllDebridClient.privateClient().newBuilder().addInterceptor(Interceptor { chain ->
             requests += chain.request()
-            onRequest(chain.request())
             val next = synchronized(responses) { responses.removeFirst() }
+            onRequest(chain.request())
             Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(next.first)
                 .message("test").body(next.second.toResponseBody("application/json".toMediaType())).build()
         }).build()
