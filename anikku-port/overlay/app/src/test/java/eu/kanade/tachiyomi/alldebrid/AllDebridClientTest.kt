@@ -1,7 +1,6 @@
 package eu.kanade.tachiyomi.alldebrid
 
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -166,5 +165,47 @@ class AllDebridClientTest {
         success("""{"user":{"isPremium":false}}""")
         assertEquals(AllDebridFailure.ACCOUNT, assertThrows(AllDebridException::class.java) { runBlocking { client().validateKey(secret) } }.failure)
         assertEquals("/v4/user", requests.first().url.encodedPath)
+    }
+
+    @Test
+    fun concurrentLookupsReuseTheTransferAndChangingAccountsCannotUnlockIt() = runBlocking {
+        success(upload)
+        success(ready)
+        success(files)
+        success(ready)
+        success(files)
+        val api = client()
+        val one = async { api.torrent(magnet) }
+        val two = async { api.torrent(magnet) }
+        val torrent = one.await()
+        assertEquals(torrent, two.await())
+        assertEquals(1, requests.count { it.url.encodedPath == "/v4/magnet/upload" })
+        keys.value = "different-account-key"
+        val count = requests.size
+        assertEquals(AllDebridFailure.KEY, assertThrows(AllDebridException::class.java) { runBlocking { api.stream(torrent, 0) } }.failure)
+        assertEquals(count, requests.size)
+    }
+
+    @Test
+    fun pendingTransferTimesOutWithoutDeletionOrLocalFallback() = runBlocking {
+        success(upload)
+        val api = client(timeout = 20)
+        assertEquals(AllDebridFailure.PENDING, assertThrows(AllDebridException::class.java) { runBlocking { api.torrent(magnet) } }.failure)
+        success(ready)
+        success(files)
+        // The same client has a short timeout, so cancellation can happen before status is requested.
+        assertEquals(1, requests.count { it.url.encodedPath == "/v4/magnet/upload" })
+        assertTrue(requests.none { it.url.host != "api.alldebrid.com" })
+    }
+
+    @Test
+    fun privateHttpClientDoesNotLogCacheSendCookiesOrFollowRedirects() {
+        val http = AllDebridClient.privateClient()
+        assertTrue(http.interceptors.isEmpty())
+        assertTrue(http.networkInterceptors.isEmpty())
+        assertEquals(null, http.cache)
+        assertFalse(http.followRedirects)
+        assertFalse(http.followSslRedirects)
+        assertFalse(http.retryOnConnectionFailure)
     }
 }

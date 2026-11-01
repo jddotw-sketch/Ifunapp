@@ -6,24 +6,18 @@ import android.security.keystore.KeyProperties
 import android.util.AtomicFile
 import java.io.File
 import java.security.KeyStore
-import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
-import javax.crypto.spec.GCMParameterSpec
 
 // ANK: Separate from PreferenceStore and all app/source backup exports. Android backups are disabled.
 class AndroidAllDebridKeyStore(context: Context) : AllDebridKeyStore {
     private val file = AtomicFile(File(context.noBackupFilesDir, "alldebrid-key"))
+    private val cipher = AllDebridCredentialCipher(::key)
 
     @Synchronized
     override fun read(): String = protect {
         if (!file.baseFile.exists()) return@protect ""
-        val bytes = file.readFully()
-        if (bytes.size !in 29..4096) throw AllDebridException(AllDebridFailure.STORAGE)
-        Cipher.getInstance("AES/GCM/NoPadding").run {
-            init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
-            doFinal(bytes.copyOfRange(12, bytes.size)).toString(Charsets.UTF_8)
-        }
+        cipher.decrypt(file.readFully())
     }
 
     @Synchronized
@@ -32,8 +26,7 @@ class AndroidAllDebridKeyStore(context: Context) : AllDebridKeyStore {
             file.delete()
         } else {
             if (value.length > 1024 || value.any { it <= ' ' || it >= '\u007f' }) throw AllDebridException(AllDebridFailure.KEY)
-            val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
-            val encrypted = cipher.iv + cipher.doFinal(value.toByteArray(Charsets.UTF_8))
+            val encrypted = cipher.encrypt(value)
             val output = file.startWrite()
             try {
                 output.write(encrypted)

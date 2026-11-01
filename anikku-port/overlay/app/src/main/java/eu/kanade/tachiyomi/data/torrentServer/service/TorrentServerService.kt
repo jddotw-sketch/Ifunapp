@@ -39,6 +39,10 @@ class TorrentServerService : Service() {
         flags: Int,
         startId: Int,
     ): Int {
+        if (intent?.action == ACTION_START && Injekt.get<TorrentServerPreferences>().useAllDebrid().get()) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         intent?.let {
             if (it.action != null) {
                 when (it.action) {

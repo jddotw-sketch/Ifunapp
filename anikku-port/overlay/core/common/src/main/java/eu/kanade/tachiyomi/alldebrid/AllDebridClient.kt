@@ -9,6 +9,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
@@ -34,7 +35,7 @@ interface AllDebridKeyStore {
 }
 
 data class AllDebridFile(val path: String, val size: Long, val link: String)
-data class AllDebridTorrent(val id: Long, val hash: String, val name: String, val files: List<AllDebridFile>)
+data class AllDebridTorrent(val id: Long, val hash: String, val name: String, val files: List<AllDebridFile>, val accountId: String = "")
 
 class AllDebridClient(
     private val keys: AllDebridKeyStore,
@@ -42,7 +43,8 @@ class AllDebridClient(
     private val pollDelay: Long = 5_000,
     private val waitTimeout: Long = 120_000,
 ) {
-    private val transfers = linkedMapOf<String, Long>()
+    private data class Transfer(val id: Long, val hash: String)
+    private val transfers = linkedMapOf<String, Transfer>()
     private val transferLock = Mutex()
     private val requestLock = Mutex()
     private var nextRequestAt = 0L
@@ -62,7 +64,7 @@ class AllDebridClient(
             .digest(file).joinToString("") { "%02x".format(it) }
         // The account key is part of the cache key but never logged or persisted.
         val cacheKey = "$key:$identity"
-        val id = transfers[cacheKey] ?: run {
+        val transfer = transfers[cacheKey] ?: run {
             val body = if (file == null) {
                 if (!magnet.startsWith("magnet:?", true)) fail(AllDebridFailure.TORRENT)
                 FormBody.Builder().add("magnets[]", magnet).build()
@@ -78,9 +80,11 @@ class AllDebridClient(
             checkError(item)
             val newId = item["id"]?.jsonPrimitive?.longOrNull?.takeIf { it > 0 } ?: fail(AllDebridFailure.RESPONSE)
             if (transfers.size >= 100) transfers.remove(transfers.keys.first())
-            transfers[cacheKey] = newId
-            newId
+            val hash = (item["hash"] as? JsonPrimitive)?.content
+                ?: magnet.substringAfter("urn:btih:", "").substringBefore('&')
+            Transfer(newId, hash).also { transfers[cacheKey] = it }
         }
+        val id = transfer.id
         withTimeoutOrNull(waitTimeout) {
             while (true) {
                 val data = request("v4.1/magnet/status", form("id", id.toString()), key)
@@ -98,9 +102,10 @@ class AllDebridClient(
                         if (files.isEmpty()) fail(AllDebridFailure.FILE)
                         return@withTimeoutOrNull AllDebridTorrent(
                             id,
-                            magnet.substringAfter("urn:btih:", "").substringBefore('&'),
+                            transfer.hash,
                             item["filename"]?.jsonPrimitive?.content.orEmpty(),
                             files,
+                            fingerprint(key),
                         )
                     }
                     in 0..3 -> delay(pollDelay)
@@ -114,15 +119,17 @@ class AllDebridClient(
     }
 
     suspend fun stream(torrent: AllDebridTorrent, index: Int): String {
+        val key = keys.read()
+        if (torrent.accountId != fingerprint(key)) fail(AllDebridFailure.KEY)
         val file = selectFile(torrent.files, index)
-        var data = request("v4/link/unlock", form("link", file.link))
+        var data = request("v4/link/unlock", form("link", file.link), key)
         val delayed = data["delayed"]?.jsonPrimitive?.longOrNull
         if (delayed != null) {
             data = withTimeoutOrNull(waitTimeout) {
                 var result: JsonObject
                 do {
                     delay(pollDelay)
-                    result = request("v4/link/delayed", form("id", delayed.toString()))
+                    result = request("v4/link/delayed", form("id", delayed.toString()), key)
                     when (result["status"]?.jsonPrimitive?.intOrNull) {
                         1 -> Unit
                         2 -> return@withTimeoutOrNull result
@@ -201,11 +208,11 @@ class AllDebridClient(
             if (depth > 32) fail(AllDebridFailure.RESPONSE)
             return nodes.flatMap { node ->
                 val item = node as? JsonObject ?: fail(AllDebridFailure.RESPONSE)
-                val name = item["n"]?.jsonPrimitive?.content ?: fail(AllDebridFailure.RESPONSE)
+                val name = (item["n"] as? JsonPrimitive)?.content ?: fail(AllDebridFailure.RESPONSE)
                 val path = if (prefix.isEmpty()) name else "$prefix/$name"
                 val children = item["e"] as? JsonArray
                 if (children != null) flattenFiles(children, path, depth + 1) else {
-                    listOf(AllDebridFile(path, item["s"]?.jsonPrimitive?.longOrNull ?: 0, safeLink(item["l"]?.jsonPrimitive?.content.orEmpty())))
+                    listOf(AllDebridFile(path, (item["s"] as? JsonPrimitive)?.longOrNull ?: 0, safeLink((item["l"] as? JsonPrimitive)?.content.orEmpty())))
                 }
             }
         }
@@ -232,6 +239,8 @@ class AllDebridClient(
         }
 
         private fun form(name: String, value: String) = FormBody.Builder().add(name, value).build()
+        private fun fingerprint(key: String) = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(key.toByteArray()).joinToString("") { "%02x".format(it) }
         private fun fail(failure: AllDebridFailure): Nothing = throw AllDebridException(failure)
     }
 }

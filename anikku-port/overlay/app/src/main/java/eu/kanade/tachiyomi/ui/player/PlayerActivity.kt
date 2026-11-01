@@ -1115,7 +1115,7 @@ class PlayerActivity : BaseActivity() {
             torrentJob = lifecycleScope.launch {
                 try {
                     if (Injekt.get<TorrentServerPreferences>().useAllDebrid().get()) {
-                        val url = Injekt.get<AllDebridResolver>().resolve(video.videoUrl, video.headers)
+                        val url = Injekt.get<AllDebridResolver>().resolve(video.videoUrl, video.headers ?: (viewModel.currentSource.value as? HttpSource)?.headers)
                         // Source credentials must never be forwarded to a debrid host.
                         mpv.setOptionString("http-header-fields", "")
                         loadFile(url, video.mpvArgs)
