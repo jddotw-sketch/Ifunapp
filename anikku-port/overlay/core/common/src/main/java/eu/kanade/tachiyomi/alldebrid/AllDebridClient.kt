@@ -9,9 +9,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
@@ -51,7 +51,7 @@ class AllDebridClient(
 
     suspend fun validateKey(key: String) {
         val user = request("v4/user", key = key)["user"] as? JsonObject ?: fail(AllDebridFailure.RESPONSE)
-        if (user["isPremium"]?.jsonPrimitive?.content != "true") fail(AllDebridFailure.ACCOUNT)
+        if (user["isPremium"]?.safePrimitive?.content != "true") fail(AllDebridFailure.ACCOUNT)
     }
 
     suspend fun clearSession() = transferLock.withLock { transfers.clear() }
@@ -60,7 +60,7 @@ class AllDebridClient(
     suspend fun torrent(input: String, file: ByteArray? = null): AllDebridTorrent = transferLock.withLock {
         val key = keys.read().takeIf { it.isNotBlank() } ?: fail(AllDebridFailure.KEY)
         val magnet = parseMagnet(input).first
-        val identity = if (file == null) magnet else java.security.MessageDigest.getInstance("SHA-256")
+        val identity = if (file == null) magnetHash(magnet).ifBlank { magnet } else java.security.MessageDigest.getInstance("SHA-256")
             .digest(file).joinToString("") { "%02x".format(it) }
         // The account key is part of the cache key but never logged or persisted.
         val cacheKey = "$key:$identity"
@@ -78,11 +78,14 @@ class AllDebridClient(
             val item = (data[if (file == null) "magnets" else "files"] as? JsonArray)
                 ?.singleOrNull() as? JsonObject ?: fail(AllDebridFailure.RESPONSE)
             checkError(item)
-            val newId = item["id"]?.jsonPrimitive?.longOrNull?.takeIf { it > 0 } ?: fail(AllDebridFailure.RESPONSE)
+            val newId = item["id"]?.safePrimitive?.longOrNull?.takeIf { it > 0 } ?: fail(AllDebridFailure.RESPONSE)
             if (transfers.size >= 100) transfers.remove(transfers.keys.first())
             val hash = (item["hash"] as? JsonPrimitive)?.content
-                ?: magnet.substringAfter("urn:btih:", "").substringBefore('&')
-            Transfer(newId, hash).also { transfers[cacheKey] = it }
+                ?: magnetHash(magnet)
+            Transfer(newId, hash).also {
+                transfers[cacheKey] = it
+                if (hash.isNotBlank()) transfers["$key:${hash.lowercase()}"] = it
+            }
         }
         val id = transfer.id
         withTimeoutOrNull(waitTimeout) {
@@ -90,20 +93,20 @@ class AllDebridClient(
                 val data = request("v4.1/magnet/status", form("id", id.toString()), key)
                 // v4.1 returns an array, including for a single requested ID.
                 val item = (data["magnets"] as? JsonArray)?.mapNotNull { it as? JsonObject }
-                    ?.singleOrNull { it["id"]?.jsonPrimitive?.longOrNull == id } ?: fail(AllDebridFailure.RESPONSE)
+                    ?.singleOrNull { it["id"]?.safePrimitive?.longOrNull == id } ?: fail(AllDebridFailure.RESPONSE)
                 checkError(item)
-                when (item["statusCode"]?.jsonPrimitive?.intOrNull) {
+                when (item["statusCode"]?.safePrimitive?.intOrNull) {
                     4 -> {
                         val fileData = request("v4/magnet/files", form("id[]", id.toString()), key)
                         val entry = (fileData["magnets"] as? JsonArray)?.mapNotNull { it as? JsonObject }
-                            ?.singleOrNull { it["id"]?.jsonPrimitive?.longOrNull == id } ?: fail(AllDebridFailure.RESPONSE)
+                            ?.singleOrNull { it["id"]?.safePrimitive?.longOrNull == id } ?: fail(AllDebridFailure.RESPONSE)
                         checkError(entry)
                         val files = flattenFiles(entry["files"] as? JsonArray ?: fail(AllDebridFailure.RESPONSE))
                         if (files.isEmpty()) fail(AllDebridFailure.FILE)
                         return@withTimeoutOrNull AllDebridTorrent(
                             id,
                             transfer.hash,
-                            item["filename"]?.jsonPrimitive?.content.orEmpty(),
+                            item["filename"]?.safePrimitive?.content.orEmpty(),
                             files,
                             fingerprint(key),
                         )
@@ -123,14 +126,14 @@ class AllDebridClient(
         if (torrent.accountId != fingerprint(key)) fail(AllDebridFailure.KEY)
         val file = selectFile(torrent.files, index)
         var data = request("v4/link/unlock", form("link", file.link), key)
-        val delayed = data["delayed"]?.jsonPrimitive?.longOrNull
+        val delayed = data["delayed"]?.safePrimitive?.longOrNull
         if (delayed != null) {
             data = withTimeoutOrNull(waitTimeout) {
                 var result: JsonObject
                 do {
                     delay(pollDelay)
                     result = request("v4/link/delayed", form("id", delayed.toString()), key)
-                    when (result["status"]?.jsonPrimitive?.intOrNull) {
+                    when (result["status"]?.safePrimitive?.intOrNull) {
                         1 -> Unit
                         2 -> return@withTimeoutOrNull result
                         else -> fail(AllDebridFailure.FILE)
@@ -140,7 +143,7 @@ class AllDebridClient(
                 error("unreachable")
             } ?: fail(AllDebridFailure.PENDING)
         }
-        return safeLink(data["link"]?.jsonPrimitive?.content ?: fail(AllDebridFailure.RESPONSE))
+        return safeLink(data["link"]?.safePrimitive?.content ?: fail(AllDebridFailure.RESPONSE))
     }
 
     private suspend fun request(
@@ -166,7 +169,7 @@ class AllDebridClient(
                 if (source.request(MAX_RESPONSE_BYTES + 1L)) fail(AllDebridFailure.RESPONSE)
                 val root = Json.parseToJsonElement(source.readUtf8()) as? JsonObject ?: fail(AllDebridFailure.RESPONSE)
                 checkError(root)
-                if (root["status"]?.jsonPrimitive?.content != "success") fail(AllDebridFailure.RESPONSE)
+                if (root["status"]?.safePrimitive?.content != "success") fail(AllDebridFailure.RESPONSE)
                 root["data"] as? JsonObject ?: fail(AllDebridFailure.RESPONSE)
             }
         } catch (e: CancellationException) {
@@ -180,6 +183,8 @@ class AllDebridClient(
     }
 
     companion object {
+        private val JsonElement.safePrimitive: JsonPrimitive
+            get() = this as? JsonPrimitive ?: fail(AllDebridFailure.RESPONSE)
         const val MAX_TORRENT_BYTES = 4 * 1024 * 1024
         private const val MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
@@ -228,7 +233,7 @@ class AllDebridClient(
 
         private fun checkError(item: JsonObject) {
             val error = item["error"] as? JsonObject ?: return
-            val failure = when (error["code"]?.jsonPrimitive?.content) {
+            val failure = when (error["code"]?.safePrimitive?.content) {
                 "AUTH_BAD_APIKEY", "AUTH_MISSING_APIKEY" -> AllDebridFailure.KEY
                 "AUTH_BLOCKED", "NO_SERVER", "MAGNET_NO_SERVER" -> AllDebridFailure.BLOCKED
                 "AUTH_USER_BANNED", "MAGNET_MUST_BE_PREMIUM", "MUST_BE_PREMIUM", "FREE_TRIAL_LIMIT_REACHED" -> AllDebridFailure.ACCOUNT
@@ -239,6 +244,11 @@ class AllDebridClient(
         }
 
         private fun form(name: String, value: String) = FormBody.Builder().add(name, value).build()
+        private fun magnetHash(input: String): String = input.substringAfter('?', "").split('&')
+            .filter { it.substringBefore('=') == "xt" }
+            .mapNotNull { runCatching { java.net.URLDecoder.decode(it.substringAfter('='), "UTF-8") }.getOrNull() }
+            .firstOrNull { it.startsWith("urn:btih:", true) }
+            ?.substringAfterLast(':')?.lowercase().orEmpty()
         private fun fingerprint(key: String) = java.security.MessageDigest.getInstance("SHA-256")
             .digest(key.toByteArray()).joinToString("") { "%02x".format(it) }
         private fun fail(failure: AllDebridFailure): Nothing = throw AllDebridException(failure)

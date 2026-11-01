@@ -31,7 +31,7 @@ class AllDebridResolver(
                 val url = input.toHttpUrlOrNull() ?: throw AllDebridException(AllDebridFailure.FILE)
                 if (!url.encodedPath.endsWith(".torrent", true)) throw AllDebridException(AllDebridFailure.FILE)
                 // This request uses source headers only; the AllDebrid credential stays on api.alldebrid.com.
-                val request = Request.Builder().url(url).apply { headers?.let { headers(it) } }.build()
+                val request = Request.Builder().url(url).apply { headers?.let { this.headers(it) } }.build()
                 network.client.newCall(request).await().use {
                     if (!it.isSuccessful) throw AllDebridException(AllDebridFailure.NETWORK)
                     readTorrent(it.body.byteStream())

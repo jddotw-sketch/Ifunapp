@@ -1131,9 +1131,11 @@ class PlayerActivity : BaseActivity() {
                 } catch (e: AllDebridException) {
                     toast(e.failure.messageResource())
                     viewModel.setIsStopped(true)
+                    viewModel.updateIsLoadingEpisode(false)
                 } catch (_: Exception) {
                     toast(AllDebridFailure.NETWORK.messageResource())
                     viewModel.setIsStopped(true)
+                    viewModel.updateIsLoadingEpisode(false)
                 }
             }
         } else {

@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.alldebrid
 
 import kotlinx.coroutines.async
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -30,14 +31,15 @@ class AllDebridClientTest {
     private val requests = CopyOnWriteArrayList<okhttp3.Request>()
     private val responses = ArrayDeque<Pair<Int, String>>()
 
-    private fun client(timeout: Long = 5_000): AllDebridClient {
+    private fun client(timeout: Long = 5_000, pause: Long = 1, onRequest: (okhttp3.Request) -> Unit = {}): AllDebridClient {
         val http = AllDebridClient.privateClient().newBuilder().addInterceptor(Interceptor { chain ->
             requests += chain.request()
+            onRequest(chain.request())
             val next = synchronized(responses) { responses.removeFirst() }
             Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(next.first)
                 .message("test").body(next.second.toResponseBody("application/json".toMediaType())).build()
         }).build()
-        return AllDebridClient(keys, http, pollDelay = 1, waitTimeout = timeout)
+        return AllDebridClient(keys, http, pollDelay = pause, waitTimeout = timeout)
     }
 
     private fun reply(json: String, code: Int = 200) { responses.add(code to json) }
@@ -149,12 +151,19 @@ class AllDebridClientTest {
     @Test
     fun cancellationPropagatesAndDoesNotResubmitTransfer() = runBlocking {
         success(upload)
-        // A short timeout expires during the rate-limit delay, after submission is retained.
-        val api = client(timeout = 1)
+        success("""{"magnets":[{"id":12,"statusCode":1}]}""")
+        val polling = CompletableDeferred<Unit>()
+        val api = client(pause = 5_000, onRequest = {
+            if (it.url.encodedPath == "/v4.1/magnet/status") polling.complete(Unit)
+        })
         val job = launch { api.torrent(magnet) }
-        kotlinx.coroutines.delay(50)
+        polling.await()
         job.cancelAndJoin()
         assertTrue(job.isCancelled)
+        success(ready)
+        success(files)
+        api.torrent(magnet)
+        assertEquals(1, requests.count { it.url.encodedPath == "/v4/magnet/upload" })
         assertTrue(requests.none { it.url.encodedPath.startsWith("/v4/magnet/delete") })
     }
 
@@ -176,7 +185,7 @@ class AllDebridClientTest {
         success(files)
         val api = client()
         val one = async { api.torrent(magnet) }
-        val two = async { api.torrent(magnet) }
+        val two = async { api.torrent(magnet.substringBefore("&index=") + "&dn=Different+title") }
         val torrent = one.await()
         assertEquals(torrent, two.await())
         assertEquals(1, requests.count { it.url.encodedPath == "/v4/magnet/upload" })
