@@ -63,7 +63,7 @@ jobs:
           ./gradlew spotlessCheck --stacktrace
       - name: Test importer and AllDebrid
         working-directory: anikku
-        run: ./gradlew :app:testDebugUnitTest --tests 'eu.kanade.tachiyomi.ui.browse.source.browse.SourceImport*Test' --tests 'eu.kanade.tachiyomi.alldebrid.*Test' --stacktrace
+        run: ./gradlew :app:testDebugUnitTest --tests 'eu.kanade.tachiyomi.ui.browse.source.browse.SourceImport*Test' --tests 'eu.kanade.tachiyomi.alldebrid.*Test' --tests 'eu.kanade.tachiyomi.data.coil.Nyaa*Test' --stacktrace
       - name: Assemble APK
         working-directory: anikku
         run: ./gradlew assembleDebug --stacktrace

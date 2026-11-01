@@ -75,8 +75,8 @@ class AllDebridClient(
                     .build()
             }
             val data = request(if (file == null) "v4/magnet/upload" else "v4/magnet/upload/file", body, key)
-            val item = (data[if (file == null) "magnets" else "files"] as? JsonArray)
-                ?.singleOrNull() as? JsonObject ?: fail(AllDebridFailure.RESPONSE)
+            val item = objects(data[if (file == null) "magnets" else "files"]).singleOrNull()
+                ?: fail(AllDebridFailure.RESPONSE)
             checkError(item)
             val newId = item["id"]?.safePrimitive?.longOrNull?.takeIf { it > 0 } ?: fail(AllDebridFailure.RESPONSE)
             if (transfers.size >= 100) transfers.remove(transfers.keys.first())
@@ -91,17 +91,20 @@ class AllDebridClient(
         withTimeoutOrNull(waitTimeout) {
             while (true) {
                 val data = request("v4.1/magnet/status", form("id", id.toString()), key)
-                // v4.1 returns an array, including for a single requested ID.
-                val item = (data["magnets"] as? JsonArray)?.mapNotNull { it as? JsonObject }
-                    ?.singleOrNull { it["id"]?.safePrimitive?.longOrNull == id } ?: fail(AllDebridFailure.RESPONSE)
+                // A targeted status query can return the magnet itself instead of a list.
+                val item = objects(data["magnets"])
+                    .singleOrNull { it["id"]?.safePrimitive?.longOrNull == id } ?: fail(AllDebridFailure.RESPONSE)
                 checkError(item)
                 when (item["statusCode"]?.safePrimitive?.intOrNull) {
                     4 -> {
-                        val fileData = request("v4/magnet/files", form("id[]", id.toString()), key)
-                        val entry = (fileData["magnets"] as? JsonArray)?.mapNotNull { it as? JsonObject }
-                            ?.singleOrNull { it["id"]?.safePrimitive?.longOrNull == id } ?: fail(AllDebridFailure.RESPONSE)
-                        checkError(entry)
-                        val files = flattenFiles(entry["files"] as? JsonArray ?: fail(AllDebridFailure.RESPONSE))
+                        val nodes = item["files"] as? JsonArray ?: run {
+                            val fileData = request("v4/magnet/files", form("id[]", id.toString()), key)
+                            val entry = objects(fileData["magnets"])
+                                .singleOrNull { it["id"]?.safePrimitive?.longOrNull == id } ?: fail(AllDebridFailure.RESPONSE)
+                            checkError(entry)
+                            entry["files"] as? JsonArray ?: fail(AllDebridFailure.RESPONSE)
+                        }
+                        val files = flattenFiles(nodes)
                         if (files.isEmpty()) fail(AllDebridFailure.FILE)
                         return@withTimeoutOrNull AllDebridTorrent(
                             id,
@@ -227,8 +230,15 @@ class AllDebridClient(
 
         private fun safeLink(value: String): String {
             val url = value.toHttpUrlOrNull() ?: fail(AllDebridFailure.RESPONSE)
-            if (!url.isHttps || url.username.isNotEmpty() || url.password.isNotEmpty()) fail(AllDebridFailure.RESPONSE)
+            // Media/file links in supported API responses can be HTTP; credentials still only go to the HTTPS API.
+            if (url.username.isNotEmpty() || url.password.isNotEmpty()) fail(AllDebridFailure.RESPONSE)
             return value
+        }
+
+        private fun objects(value: JsonElement?): List<JsonObject> = when (value) {
+            is JsonObject -> listOf(value)
+            is JsonArray -> value.map { it as? JsonObject ?: fail(AllDebridFailure.RESPONSE) }
+            else -> fail(AllDebridFailure.RESPONSE)
         }
 
         private fun checkError(item: JsonObject) {

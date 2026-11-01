@@ -20,11 +20,34 @@ class AllDebridResolver(
     private val keys: AllDebridKeyStore,
     private val network: NetworkHelper,
 ) {
+    private val metadata = java.util.Collections.synchronizedMap(linkedMapOf<String, TorrentMetadata>())
+
+    suspend fun metadata(input: String, headers: Headers? = null): TorrentMetadata = withContext(Dispatchers.IO) {
+        val result = TorrentMetadataReader.read(torrentBytes(input, headers))
+        synchronized(metadata) {
+            if (metadata.size >= 64) metadata.remove(metadata.keys.first())
+            metadata[result.hash] = result
+        }
+        result
+    }
+
     suspend fun torrent(input: String, headers: Headers? = null): AllDebridTorrent = withContext(Dispatchers.IO) {
         if (keys.read().isBlank()) throw AllDebridException(AllDebridFailure.KEY)
         if (input.startsWith("magnet:?", true)) return@withContext api.torrent(input)
         try {
-            val bytes = if (input.startsWith("content://")) {
+            api.torrent(input, torrentBytes(input, headers))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: AllDebridException) {
+            throw e
+        } catch (_: Exception) {
+            throw AllDebridException(AllDebridFailure.NETWORK)
+        }
+    }
+
+    private suspend fun torrentBytes(input: String, headers: Headers?): ByteArray {
+        try {
+            return if (input.startsWith("content://")) {
                 context.contentResolver.openInputStream(Uri.parse(input))?.use(::readTorrent)
                     ?: throw AllDebridException(AllDebridFailure.FILE)
             } else {
@@ -37,7 +60,6 @@ class AllDebridResolver(
                     readTorrent(it.body.byteStream())
                 }
             }
-            api.torrent(input, bytes)
         } catch (e: CancellationException) {
             throw e
         } catch (e: AllDebridException) {
@@ -49,7 +71,17 @@ class AllDebridResolver(
 
     suspend fun resolve(input: String, headers: Headers? = null): String {
         val index = AllDebridClient.parseMagnet(input).second
-        return api.stream(torrent(input, headers), index)
+        val torrent = torrent(input, headers)
+        val original = metadata[torrent.hash.lowercase()]
+        val mapped = if (index > 0 && original != null) {
+            val path = original.files.singleOrNull { it.index == index }?.path
+                ?: throw AllDebridException(AllDebridFailure.FILE)
+            val relative = path.removePrefix("${original.name}/")
+            val matches = torrent.files.withIndex().filter { it.value.path == path || it.value.path == relative }
+            if (matches.size != 1) throw AllDebridException(AllDebridFailure.FILE)
+            matches.single().index + 1
+        } else index
+        return api.stream(torrent, mapped)
     }
 
     private fun readTorrent(stream: InputStream): ByteArray {

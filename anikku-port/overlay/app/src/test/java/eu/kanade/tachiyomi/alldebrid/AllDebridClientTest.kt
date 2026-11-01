@@ -217,4 +217,26 @@ class AllDebridClientTest {
         assertFalse(http.followSslRedirects)
         assertFalse(http.retryOnConnectionFailure)
     }
+
+    @Test
+    fun individualStatusObjectUsesInlineFilesAndAcceptsServiceHttpLinks() = runBlocking {
+        success("""{"magnets":{"id":"12"}}""")
+        success("""{"magnets":{"id":"12","statusCode":4,"filename":"Example","files":[{"n":"episode.mkv","s":100,"l":"http://alldebrid.com/f/example"}]}}""")
+        success("""{"link":"http://cdn.example/episode.mkv"}""")
+        val api = client()
+        assertEquals("http://cdn.example/episode.mkv", api.stream(api.torrent(magnet), 1))
+        assertEquals(listOf("/v4/magnet/upload", "/v4.1/magnet/status", "/v4/link/unlock"), requests.map { it.url.encodedPath })
+        assertTrue(requests.all { it.url.host == "api.alldebrid.com" && it.url.isHttps })
+    }
+
+    @Test
+    fun filesObjectFallbackIsSupportedButAnotherTransfersIdIsRejected() = runBlocking {
+        success(upload)
+        success("""{"magnets":{"id":12,"statusCode":4}}""")
+        success("""{"magnets":{"id":12,"files":[{"n":"episode.mkv","s":100,"l":"https://alldebrid.com/f/example"}]}}""")
+        assertEquals(1, client().torrent(magnet).files.size)
+        success(upload)
+        success("""{"magnets":{"id":99,"statusCode":4}}""")
+        assertEquals(AllDebridFailure.RESPONSE, assertThrows(AllDebridException::class.java) { runBlocking { client().torrent(magnet) } }.failure)
+    }
 }

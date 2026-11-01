@@ -18,6 +18,16 @@ object TorrentUtils {
     ): TorrentInfo {
         // ANK: Legacy extension API is synchronous; cloud IO remains on its calling IO thread.
         if (Injekt.get<TorrentServerPreferences>().useAllDebrid().get()) {
+            if (!url.startsWith("magnet:?", true)) {
+                val metadata = runBlocking { Injekt.get<AllDebridResolver>().metadata(url) }
+                return TorrentInfo(
+                    metadata.name,
+                    metadata.files.map { TorrentFile(it.path, it.index, it.size, metadata.hash) },
+                    metadata.hash,
+                    metadata.files.sumOf { it.size },
+                    emptyList(),
+                )
+            }
             val torrent = runBlocking { Injekt.get<AllDebridResolver>().torrent(url) }
             return TorrentInfo(
                 torrent.name,

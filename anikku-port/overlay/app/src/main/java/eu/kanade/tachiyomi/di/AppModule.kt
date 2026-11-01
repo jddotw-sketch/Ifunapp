@@ -5,6 +5,7 @@ import eu.kanade.tachiyomi.alldebrid.AllDebridClient
 import eu.kanade.tachiyomi.alldebrid.AllDebridKeyStore
 import eu.kanade.tachiyomi.alldebrid.AllDebridResolver
 import eu.kanade.tachiyomi.alldebrid.AndroidAllDebridKeyStore
+import eu.kanade.tachiyomi.data.coil.NyaaBrowseCoverResolver
 import android.os.Build
 import androidx.core.content.ContextCompat
 import androidx.sqlite.db.SupportSQLiteDatabase
@@ -82,6 +83,7 @@ class AppModule(val app: Application) : InjektModule {
         addSingletonFactory<AllDebridKeyStore> { AndroidAllDebridKeyStore(app) }
         addSingletonFactory { AllDebridClient(get()) }
         addSingletonFactory { AllDebridResolver(app, get(), get(), get()) }
+        addSingletonFactory { NyaaBrowseCoverResolver() }
         // ANK <--
 
         addSingletonFactory<SqlDriver> {
