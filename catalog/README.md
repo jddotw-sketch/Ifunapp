@@ -190,7 +190,7 @@ reading-state changes are made. The production inventory identifies 45 source ID
 from a saved backup and 54 installed options ready to test, including additional
 language variants. This is not a complete current phone inventory or universal
 support claim. Missing/unknown sources are disabled. Anime sources beyond the
-verified Rule34 and HentaiMama adapters need their own adapters and compatibility checks.
+requested screenshot list still need adapters and compatibility checks.
 
 HentaiMama's direct adapter (`hentaimama.py`, source ID 8058423919997530503)
 follows the extension's canonical `/tvshows/.../` keys and alphabetical series
@@ -198,15 +198,53 @@ listing. It verifies the requested page, a persisted published page-count snapsh
 and next links before following sequential pagination. Layout changes, challenges,
 empty pages or changing counts fail visibly instead of producing a false complete
 backup. Only catalog metadata is collected, without episode/video requests.
-The November 2 Anikku backup identifies six referenced torrent/debrid sources;
-these are now inventoried but need adapters. Library backups do not enumerate every
-installed source extension. The source inventory is private deployment data.
+The private inventory matches the screenshot's eleven extensions to twelve signed
+source IDs. `anime_sources.py` implements the other ten sources: hanime.tv,
+HentaiHaven, Hstream, MissAV, Movy, Xvideos, PTorrent, Hentai Torrent and both Nyaa
+sources. Reference code is pinned to Yuzono commit
+`82f89fde63e90090b4868b2003a812c19f714a39`. Each passed first/next-page checks and
+a three-page dashboard collection/export. HentaiHaven, Movy and hanime also passed
+final-page checks. Full means the listing exposed by a source, not its entire
+archive: Nyaa applies browse limits and Movy exposes at most 500 trending pages.
+Movy excludes unplayable person records and retains Anikku's actual enum values
+(Seasons=0, Episodes=1) through protobuf field 507. Kotlin interoperability tests
+verify that encoding with the real reader schema. hanime caches its complete
+public search response on disk and groups series using the extension's rules.
+Phone playback/restore remains unverified for each source. Library backups do not
+enumerate unused installed extensions. The source inventory stays private.
 
 HentaiXDickgirl (918523496924275699) and MyHentaiGallery
 (7327582601422280123) passed three-page live listing/export tests: 75 and 69 entries.
-These are partial catalog samples, not complete catalogs. Phone restore and cover/
+The initial samples remain labeled partial. Their later complete listing snapshots
+contain 2,506 and 60,049 unique entries, respectively. Phone restore and cover/
 chapter refresh still need verification. Engine-relative cover URLs are omitted so
 the installed reader extension can refresh metadata using its own source.
+
+## Readable filenames and private Google Drive uploads
+
+Backup names contain the source, reader, Full/Sample label, stable snapshot namespace
+and part number. Category names/orders are unchanged. Re-exporting existing completed
+jobs changes filenames without changing backup bytes; old download URLs remain aliases
+for the corresponding indexed files. Only a fresh matching index is authoritative.
+
+The transport retries truncated HTTP bodies (`IncompleteRead`), remote disconnects
+and connection resets through the existing rate limiter/backoff. These errors no
+longer immediately stop Rule34Video. Persistent errors and invalid layouts still
+stop visibly with checkpoints intact; no scheduler is used to conceal failures.
+
+`python -m catalog.drive_upload --watch` runs as a separate Linux process/container.
+It blocks on inotify export events, uploads only complete validated indexes, checks
+SHA256 before copying and Drive MD5 afterward, and persists an upload ledger so
+restarts do not duplicate files. Samples/partial exports remain local. No files are
+made public. Google sign-in uses the `drive.file` scope. Credentials belong in a
+private mounted directory, separate from the dashboard; they are never committed.
+The process needs rclone, a writable credentials directory and a public status-file
+location. Only sanitized upload status and private Drive links reach the dashboard.
+The private configuration pins the backup folder ID, avoiding unnecessary root
+lookups and restricting upload paths to that folder. Shared-client
+Google API rate limits can still delay uploads; local backups remain available.
+Uploads start on export completion rather than an hourly schedule. To retry a
+stopped upload, restart only the upload service; its ledger skips verified files.
 
 ## Validation and remaining work
 

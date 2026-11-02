@@ -91,6 +91,25 @@ class DashboardTests(unittest.TestCase):
             with self.assertRaises(ValueError): self.controller.start(job['id'])
         self.assertEqual('failed', self.controller.jobs.get(job['id'])['state'])
 
+    def test_old_download_links_resolve_to_the_renamed_indexed_backup(self):
+        from catalog.backup import export
+        from catalog.engine import Entry, Page, Store
+        from catalog.tests.test_pipeline import Fake
+        job = self.controller.jobs.add(self.source, 'Readable backup', 'full')
+        adapter = Fake()
+        store = Store(job['manifest'], adapter)
+        try:
+            store.add_page('1', 1)
+            store.commit_page('1', Page(True, (Entry('/entry/1', 'Example'),)))
+            with store.db: store.put_checkpoint('discovered', 'yes')
+            result = export(store, adapter, 'komikku', job['output'])
+        finally:
+            store.close()
+        entry = result['files'][0]
+        self.assertIn('Fixture-Komikku-Full-', entry['file'])
+        self.assertEqual(self.controller.download(job['id'], entry['file']),
+                         self.controller.download(job['id'], entry['legacy_file']))
+
     def test_http_page_health_and_cross_site_action_protection(self):
         server = ThreadingHTTPServer(('127.0.0.1', 0), handler(self.controller))
         thread = threading.Thread(target=server.serve_forever, daemon=True)

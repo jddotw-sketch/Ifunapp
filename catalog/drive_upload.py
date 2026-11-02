@@ -4,6 +4,7 @@ Run separately from the collector, with read-only access to backups and a privat
 rclone configuration mount. Only indexed files are copied; nothing is made public.
 """
 import argparse
+import configparser
 import ctypes
 import hashlib
 import json
@@ -22,15 +23,24 @@ class DriveUploads:
         self.credentials, self.status = Path(credentials), Path(status)
         self.db = sqlite3.connect(self.credentials / 'uploads.sqlite')
         self.db.execute('CREATE TABLE IF NOT EXISTS uploads(path TEXT PRIMARY KEY,sha256 TEXT,url TEXT)')
-        self.folder_url = None
+        config = configparser.ConfigParser(interpolation=None)
+        config.read(self.credentials / 'rclone.conf')
+        self.root_id = config.get('catalogdrive', 'root_folder_id', fallback='')
+        self.folder_url = 'https://drive.google.com/drive/folders/' + self.root_id if self.root_id else None
 
     def command(self, *args):
+        if not self.root_id:
+            raise RuntimeError('Drive backup folder ID is not configured; uploads were not attempted')
         result = subprocess.run(['rclone', '--config', str(self.credentials / 'rclone.conf'),
-                                 '--retries', '3', '--low-level-retries', '5', *map(str,args)],
+                                 '--tpslimit', '2', '--tpslimit-burst', '1',
+                                 '--timeout', '30s', '--contimeout', '10s',
+                                 '--retries', '3', '--low-level-retries', '3', *map(str,args)],
                                 capture_output=True, text=True, timeout=240)
         if result.returncode:
             # rclone stderr may contain OAuth/provider data; keep credentials out of UI/logs.
-            raise RuntimeError(f'Drive transfer failed (exit {result.returncode}); local backups are preserved')
+            if 'rateLimitExceeded' in result.stderr or 'quotaExceeded' in result.stderr:
+                raise RuntimeError('Google Drive rate-limited the shared connection; sign-in and local backups are preserved')
+            raise RuntimeError(f'Drive {args[0]} failed (exit {result.returncode}); local backups are preserved')
         return result.stdout
 
     def write_status(self, error=None):
@@ -65,7 +75,7 @@ class DriveUploads:
             parent = path.parent.name
             source = name.split('-' + data['reader'].capitalize() + '-',1)[0]
             folder = source + '-' + parent[:12]
-            remote = 'catalogdrive:CatalogBackups/' + folder + '/' + name
+            remote = 'catalogdrive:' + folder + '/' + name
             self.command('copyto',path,remote,'--immutable')
             remote_hash = self.command('md5sum',remote).split()[0]
             if remote_hash.lower() != hashlib.md5(raw).hexdigest():
@@ -79,8 +89,7 @@ class DriveUploads:
     def scan(self):
         try:
             if self.folder_url is None:
-                info = json.loads(self.command('lsjson','catalogdrive:CatalogBackups','--stat'))
-                self.folder_url = 'https://drive.google.com/drive/folders/' + info['ID']
+                raise RuntimeError('Drive backup folder ID is not configured')
             for index in sorted(self.backups.rglob('*-index.json')):
                 self.sync_index(index)
             self.write_status()
