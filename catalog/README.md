@@ -257,7 +257,7 @@ categories, bookmarks and reading/watching progress. It injects an insertion fai
 inside a chunk, verifies rollback, replays twice and checks existing state is unchanged.
 Synthetic fixture backups are NOT real catalog downloads.
 
-Production acceptance still needs a verified adapter/config for each desired live
-source, installed-extension source-ID/URL/playback checks, Android restore tests
+Sources outside the configured inventory still need verified adapters/configs.
+Production acceptance needs on-device installed-extension URL/playback checks, Android restore tests
 against a pre-populated library with a forced interruption, and on-device timings.
 The code makes no claim that 336,277 entries have been crawled or restored on a phone.
