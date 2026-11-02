@@ -192,6 +192,16 @@ language variants. This is not a complete current phone inventory or universal
 support claim. Missing/unknown sources are disabled. Anime sources beyond the
 verified Rule34 adapter need their own adapters and compatibility checks.
 
+HentaiMama's direct adapter (`hentaimama.py`, source ID 8058423919997530503)
+follows the extension's canonical `/tvshows/.../` keys and alphabetical series
+listing. It verifies the requested page, a persisted published page-count snapshot,
+and next links before following sequential pagination. Layout changes, challenges,
+empty pages or changing counts fail visibly instead of producing a false complete
+backup. Only catalog metadata is collected, without episode/video requests.
+The November 2 Anikku backup identifies six referenced torrent/debrid sources;
+these are now inventoried but need adapters. Library backups do not enumerate every
+installed source extension. The source inventory is private deployment data.
+
 HentaiXDickgirl (918523496924275699) and MyHentaiGallery
 (7327582601422280123) passed three-page live listing/export tests: 75 and 69 entries.
 These are partial catalog samples, not complete catalogs. Phone restore and cover/

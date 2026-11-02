@@ -13,11 +13,18 @@ from .dashboard_store import Jobs
 from .engine import Fetcher, ManifestLock, Store, _page_decode, collect, discover
 from .engine_api import EngineAdapter
 from .rule34 import BASE_CONFIG, Rule34Adapter
+from .hentaimama import HentaiMamaAdapter, prepare_hentaimama
 import re
 
 
 def make_adapter(source, config):
-    return Rule34Adapter(config) if source['kind'] == 'rule34' else EngineAdapter(config)
+    if source['kind'] == 'rule34':
+        return Rule34Adapter(config)
+    if source['kind'] == 'hentaimama':
+        return HentaiMamaAdapter(config)
+    if source['kind'] == 'engine':
+        return EngineAdapter(config)
+    raise ValueError('Unsupported source adapter')
 
 
 def prepare_rule34():
@@ -50,6 +57,8 @@ def run(registry, key):
             config = params['adapter_config']
         elif source['kind'] == 'rule34':
             config = prepare_rule34()
+        elif source['kind'] == 'hentaimama':
+            config = prepare_hentaimama()
         else:
             config = {'name': source['name'], 'engine_url': source['engine_url'],
                       'source_id': source['source_id'], 'listing': params['listing']}

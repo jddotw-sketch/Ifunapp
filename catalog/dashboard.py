@@ -88,7 +88,7 @@ class Controller:
             raise ValueError('Test page count must be a whole number.')
         with self.lock:
             if sum(j['state'] in ACTIVE for j in self.jobs.all()) >= self.max_active:
-                raise ValueError('Two collections are already running. Pause one first.')
+                raise ValueError(f'{self.max_active} collections are already running. Pause one first.')
             job = self.jobs.add(source, data.get('name') or source['name'], scope, listing, limit)
             return self.start(job['id'])
 
@@ -210,8 +210,9 @@ def main():
     parser.add_argument('--listen', default='0.0.0.0')
     parser.add_argument('--port', type=int, default=8087)
     parser.add_argument('--origin', default='http://192.168.12.237:8087')
+    parser.add_argument('--max-active', type=int, choices=range(1, 5), default=2)
     args = parser.parse_args()
-    controller = Controller(args.root, args.backups, args.sources, args.origin)
+    controller = Controller(args.root, args.backups, args.sources, args.origin, max_active=args.max_active)
     server = ThreadingHTTPServer((args.listen, args.port), handler(controller))
     print(f'Catalog dashboard listening on port {args.port}', flush=True)
     server.serve_forever()
