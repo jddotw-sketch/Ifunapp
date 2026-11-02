@@ -190,7 +190,7 @@ reading-state changes are made. The production inventory identifies 45 source ID
 from a saved backup and 54 installed options ready to test, including additional
 language variants. This is not a complete current phone inventory or universal
 support claim. Missing/unknown sources are disabled. Anime sources beyond the
-verified Rule34 adapter need their own adapters and compatibility checks.
+verified Rule34 and HentaiMama adapters need their own adapters and compatibility checks.
 
 HentaiMama's direct adapter (`hentaimama.py`, source ID 8058423919997530503)
 follows the extension's canonical `/tvshows/.../` keys and alphabetical series
