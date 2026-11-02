@@ -8,15 +8,15 @@ class NetworkToLocalManga(
     private val mangaRepository: MangaRepository,
 ) {
 
+    /** Import-specific fast path: insert missing records and select only ids/favorite flags. */
+    suspend fun forSourceImport(manga: List<Manga>): List<SourceImportManga> =
+        mangaRepository.insertNetworkMangaForImport(manga)
+
     /**
      * @param updateInfo Default: `true`. If `true`, it will update the manga's information in the database if it already exists.
      * If `false`, it will only insert the manga if it doesn't exist in the database. This is used to avoid the case when fetching
      * related mangas from within `MangaScreenModel` would overwrite current manga's `getDetails` info with info from browsing.
      */
-    /** Import-specific fast path: insert missing records and select only ids/favorite flags. */
-    suspend fun forSourceImport(manga: List<Manga>): List<SourceImportManga> =
-        mangaRepository.insertNetworkMangaForImport(manga)
-
     suspend operator fun invoke(
         manga: Manga,
         // KMK -->

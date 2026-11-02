@@ -1,0 +1,2 @@
+protobuf>=5.29.5,<8
+beautifulsoup4>=4.12.3,<5
