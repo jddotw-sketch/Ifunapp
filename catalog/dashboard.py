@@ -83,6 +83,8 @@ class Controller:
         listing = data.get('listing', 'popular')
         if listing not in ('popular', 'latest'):
             raise ValueError('Choose Popular or Latest.')
+        if listing not in source.get('listings', ('popular', 'latest')):
+            raise ValueError('This listing is not supported by the source adapter.')
         limit = data.get('page_limit', 3)
         if type(limit) is not int:
             raise ValueError('Test page count must be a whole number.')
@@ -106,10 +108,11 @@ class Controller:
             raise ValueError('Invalid backup filename')
         job = self.jobs.get(key)
         snapshot = self.jobs.snapshot(job)
-        if name not in {f['file'] for f in snapshot['files']}:
+        entry = next((f for f in snapshot['files'] if name in (f['file'], f.get('legacy_file'))), None)
+        if entry is None:
             raise KeyError('Validated backup not found')
         output = Path(job['output']).resolve()
-        path = (output / name).resolve()
+        path = (output / entry['file']).resolve()
         if not output.is_relative_to(self.jobs.backups) or path.parent != output:
             raise ValueError('Invalid backup path')
         return path
@@ -148,6 +151,9 @@ def handler(controller):
                     return self.json(200, data)
                 if path == '/api/jobs':
                     return self.json(200, {'jobs': [controller.jobs.snapshot(j) for j in controller.jobs.all()]})
+                if path == '/api/cloud':
+                    status = controller.jobs.root.parent / 'cloud-public/cloud-status.json'
+                    return self.json(200, json.loads(status.read_text()) if status.exists() else {'status': 'not_configured'})
                 match = re.fullmatch(r'/api/jobs/([a-z0-9-]+)/files/(.+)', path)
                 if match:
                     file = controller.download(match[1], match[2])

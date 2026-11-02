@@ -194,6 +194,10 @@ class CatalogWireTest {
 }
 ''', encoding='utf-8')
     if reader == 'anikku':
+        test.write_text(test.read_text(encoding='utf-8').replace(
+            '        CatalogRestoreValidation.check(backup.backupManga)',
+            '        assertEquals(eu.kanade.tachiyomi.animesource.model.FetchType.Seasons, backup.backupManga.first().fetchType)\n'
+            '        CatalogRestoreValidation.check(backup.backupManga)'), encoding='utf-8')
         for path in (root / 'app/src').glob('*/AndroidManifest.xml'):
             text = path.read_text(encoding='utf-8').replace('android:label="@string/app_name"',
                     'android:label="Anikku Library Import"').replace('android:icon="@mipmap/ic_launcher"',

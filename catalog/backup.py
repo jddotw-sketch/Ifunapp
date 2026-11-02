@@ -7,6 +7,8 @@ import gzip
 import hashlib
 import json
 import os
+import re
+import unicodedata
 from pathlib import Path
 
 from google.protobuf import descriptor_pb2, descriptor_pool, message_factory
@@ -31,11 +33,16 @@ def schema(reader):
                 f.type = kind
 
     # Types: int64=3, int32=5, bool=8, string=9.
-    message('Entry', [(1, 'source', 3, False), (2, 'url', 9, False), (3, 'title', 9, False),
+    entry_fields = [(1, 'source', 3, False), (2, 'url', 9, False), (3, 'title', 9, False),
                       (4, 'artist', 9, False), (5, 'author', 9, False), (6, 'description', 9, False),
                       (7, 'genre', 9, True), (8, 'status', 5, False), (9, 'thumbnail', 9, False),
                       (13, 'date_added', 3, False), (17, 'categories', 3, True),
-                      (100, 'favorite', 8, False), (111, 'initialized', 8, False)])
+                      (100, 'favorite', 8, False), (111, 'initialized', 8, False)]
+    if reader == 'anikku':
+        entry_fields.append((507, 'fetch_type', 5, False))
+    message('Entry', entry_fields)
+    if reader == 'anikku':
+        file.message_type[-1].field[-1].default_value = '1'  # Reader default: FetchType.Episodes.
     message('Category', [(1, 'name', 9, False), (2, 'order', 3, False), (3, 'id', 3, False)])
     message('Source', [(1, 'name', 9, False), (2, 'source_id', 3, False)])
     fields = [(manga_field, 'entries', 'Entry', True), (category_field, 'categories', 'Category', True),
@@ -139,10 +146,15 @@ def export(store, adapter, reader, directory, allow_partial=False):
                 if data[name]:
                     setattr(entry, name, data[name])
             entry.genre.extend(data['genres'])
+            if reader == 'anikku' and data.get('fetch_type', 1) != 1:
+                entry.fetch_type = data['fetch_type']
             entry.categories.append(order)  # Reader restore maps category ORDER, not database ID.
         for order in sorted(categories):
             backup.categories.add(name=f'Catalog {namespace} {order:04d}', order=order, id=order)
-        path = directory / f'{namespace}-{reader}-{start // 50_000 + 1:04d}.tachibk'
+        source_name = re.sub(r'[^A-Za-z0-9._-]+', '-', unicodedata.normalize('NFKD', adapter.name).encode('ascii', 'ignore').decode()).strip('.-_')[:70] or 'Catalog'
+        label = 'Sample' if allow_partial else 'Full'
+        legacy_name = f'{namespace}-{reader}-{start // 50_000 + 1:04d}.tachibk'
+        path = directory / f'{source_name}-{reader.capitalize()}-{label}-{namespace}-Part-{start // 50_000 + 1:04d}.tachibk'
         temporary = path.with_suffix('.tmp')
         raw = backup.SerializeToString(deterministic=True)
         if len(raw) > 256 * 1024 * 1024:
@@ -153,7 +165,7 @@ def export(store, adapter, reader, directory, allow_partial=False):
             os.fsync(target.fileno())
         validate(temporary, reader, len(backup.entries))
         temporary.replace(path)
-        output.append({'file': path.name, 'entries': len(backup.entries),
+        output.append({'file': path.name, 'legacy_file': legacy_name, 'entries': len(backup.entries),
                        'sha256': hashlib.sha256(path.read_bytes()).hexdigest()})
     manifest = {'reader': reader, 'adapter': adapter.identity, 'partial': allow_partial,
                 'entries': total, 'files': output}

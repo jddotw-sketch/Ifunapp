@@ -1,5 +1,6 @@
 """Normalized JSON transport adapter. Native websites need their own parser adapter."""
 import hashlib
+from http.client import IncompleteRead, RemoteDisconnected
 import json
 import socket
 from datetime import datetime, timezone
@@ -46,7 +47,10 @@ class JsonAdapter:
                 raise ValueError("HTTP adapters require HTTPS")
             try:
                 accept = 'text/html' if self.config.get('adapter') == 'html' else 'application/json'
-                request = Request(url, headers={'User-Agent': 'Ifunapp-Catalog/1.0', 'Accept': accept})
+                headers = {'User-Agent': self.config.get('user_agent', 'Ifunapp-Catalog/1.0'), 'Accept': accept}
+                if self.config.get('base_url'):
+                    headers['Referer'] = self.config['base_url'].rstrip('/') + '/'
+                request = Request(url, headers=headers)
                 with urlopen(request, timeout=self.config.get('timeout', 30)) as response:
                     raw = response.read(16 * 1024 * 1024 + 1)
             except HTTPError as exc:
@@ -61,7 +65,7 @@ class JsonAdapter:
                             delay = 0
                     raise Retryable(f"HTTP {exc.code}", max(0, delay)) from exc
                 raise
-            except (URLError, TimeoutError, socket.timeout) as exc:
+            except (URLError, TimeoutError, socket.timeout, IncompleteRead, RemoteDisconnected, ConnectionError) as exc:
                 raise Retryable(str(exc)) from exc
         if len(raw) > 16 * 1024 * 1024:
             raise ValueError("Listing exceeds 16 MiB")

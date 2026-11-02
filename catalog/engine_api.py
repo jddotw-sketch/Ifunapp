@@ -4,6 +4,7 @@ Source keys and IDs come from that engine, not from guessed website URLs. Listin
 requests populate its metadata cache but never add entries to its library.
 """
 import hashlib
+from http.client import IncompleteRead, RemoteDisconnected
 import json
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
@@ -39,7 +40,7 @@ class EngineAdapter:
             if exc.code == 429 or 500 <= exc.code < 600:
                 raise Retryable(f'Extension engine returned HTTP {exc.code}', retry_after=5) from exc
             raise ValueError(f'Extension engine returned HTTP {exc.code}') from exc
-        except (URLError, TimeoutError) as exc:
+        except (URLError, TimeoutError, IncompleteRead, RemoteDisconnected, ConnectionError) as exc:
             raise Retryable('Extension request timed out or could not connect', retry_after=3) from exc
         if len(raw) > 16 * 1024 * 1024:
             raise ValueError('Extension listing exceeded the response limit')
