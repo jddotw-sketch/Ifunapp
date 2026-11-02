@@ -1,0 +1,7 @@
+{
+  "name": "Example normalized source (replace with verified source mapping)",
+  "mode": "monotonic",
+  "first_key": "1",
+  "url_template": "https://example.invalid/catalog?page={key}",
+  "reader_sources": {"komikku": 123456789}
+}

@@ -1,0 +1,139 @@
+name: Catalog pipeline and reader builds
+on:
+  push:
+    branches: [catalog-pipeline]
+  pull_request:
+    paths: ['catalog/**', '.github/workflows/catalog-pipeline.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: catalog-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  pipeline:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r catalog/requirements.txt
+      - name: Discovery, resume, deduplication and export tests
+        run: python -m unittest discover -s catalog/tests -v
+      - name: Generate Python-to-Kotlin interoperability fixtures
+        run: python -m catalog.fixtures --output fixtures --count 5001
+      - name: Full target size synthetic validation
+        run: python -m catalog.fixtures --output scale --count 336277 > scale-report.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalog-wire-fixtures
+          path: fixtures/*/*.tachibk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: catalog-scale-validation
+          path: |
+            scale-report.json
+            scale/*/*index.json
+  readers:
+    needs: pipeline
+    strategy:
+      fail-fast: false
+      matrix:
+        reader: [anikku, komikku]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    env:
+      SIGNING_STORE_PASSWORD: ${{ secrets.IMPORT_SIGNING_STORE_PASSWORD }}
+      SIGNING_KEY_ALIAS: ${{ secrets.IMPORT_SIGNING_KEY_ALIAS }}
+      SIGNING_KEY_PASSWORD: ${{ secrets.IMPORT_SIGNING_KEY_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout pinned Anikku
+        if: matrix.reader == 'anikku'
+        uses: actions/checkout@v4
+        with:
+          repository: komikku-app/anikku
+          ref: 6e35b41f0cc7e375d15527bd61375435f998685a
+          path: reader
+      - name: Restore pinned Komikku archive
+        if: matrix.reader == 'komikku'
+        run: |
+          cat komikku-source-import.zip.part-* > /tmp/komikku.zip
+          echo '9113479c0eea4151bf2d0708aea1ba40fa3d72db90eea0a1c687c0f7e288c36c  /tmp/komikku.zip' | sha256sum --check
+          unzip -q /tmp/komikku.zip -d /tmp/komikku-source-import
+          python3 adaptive_import_patch.py
+          mv /tmp/komikku-source-import/komikku-master reader
+          cp -a pagination/overlay/. reader/
+          git -C reader init
+          git -C reader config user.name 'GitHub Actions'
+          git -C reader config user.email 'actions@github.com'
+          git -C reader add .
+          git -C reader commit -m 'Prepare pinned Komikku with existing overlay'
+      - name: Apply existing Anikku overlay and merge translation additions
+        if: matrix.reader == 'anikku'
+        run: |
+          cp -a anikku-port/overlay/. reader/
+          git -C reader checkout HEAD -- i18n-kmk/src/commonMain/moko-resources/base/strings.xml
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+          original=Path('reader/i18n-kmk/src/commonMain/moko-resources/base/strings.xml')
+          additions=Path('anikku-port/overlay/i18n-kmk/src/commonMain/moko-resources/base/strings.xml')
+          root=ET.parse(original).getroot()
+          defined={e.attrib.get('name') for e in root}
+          for new in ET.parse(additions).getroot():
+              if new.attrib.get('name') not in defined: root.append(new)
+          ET.ElementTree(root).write(original,encoding='utf-8',xml_declaration=True)
+          PY
+      - name: Apply catalog restore and build identity changes
+        run: python3 -m catalog.patch_readers reader ${{ matrix.reader }}
+      - name: Load existing persistent signing certificate when configured
+        env:
+          SIGNING_STORE_BASE64: ${{ secrets.IMPORT_SIGNING_STORE_BASE64 }}
+        run: |
+          if [ -n "$SIGNING_STORE_BASE64" ]; then
+            test -n "$SIGNING_STORE_PASSWORD"
+            test -n "$SIGNING_KEY_ALIAS"
+            test -n "$SIGNING_KEY_PASSWORD"
+            printf '%s' "$SIGNING_STORE_BASE64" | base64 --decode > "$RUNNER_TEMP/import-signing.jks"
+            echo "SIGNING_STORE_FILE=$RUNNER_TEMP/import-signing.jks" >> "$GITHUB_ENV"
+            echo 'Signing: configured persistent certificate' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'Signing: ephemeral debug certificate; update compatibility is NOT guaranteed.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: catalog-wire-fixtures
+          path: fixtures
+      - name: Set reader fixture
+        run: echo "CATALOG_FIXTURE=$(find "$GITHUB_WORKSPACE/fixtures/${{ matrix.reader }}" -name '*.tachibk' | head -n 1)" >> "$GITHUB_ENV"
+      - name: Format and test real reader schemas and existing importer
+        working-directory: reader
+        run: |
+          chmod +x gradlew
+          ./gradlew spotlessApply --stacktrace
+          ./gradlew :app:testDebugUnitTest --tests '*CatalogWireTest' --tests '*SourceImport*Test' --stacktrace
+      - name: Build APK
+        working-directory: reader
+        run: ./gradlew assembleDebug --stacktrace
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ matrix.reader }}-catalog-test-reports
+          path: |
+            reader/app/build/test-results/testDebugUnitTest/
+            reader/app/build/reports/tests/testDebugUnitTest/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.reader }}-catalog-import-apk
+          path: reader/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+      - name: Remove temporary signing material
+        if: always()
+        run: rm -f "$RUNNER_TEMP/import-signing.jks"
