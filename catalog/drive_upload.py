@@ -13,7 +13,6 @@ from pathlib import Path
 import re
 import sqlite3
 import subprocess
-import time
 
 from .backup import validate
 
@@ -77,20 +76,12 @@ class DriveUploads:
             source = name.split('-' + data['reader'].capitalize() + '-',1)[0]
             folder = source + '-' + parent[:12]
             remote = 'catalogdrive:' + folder + '/' + name
-            self.command('copyto',path,remote,'--immutable')
-            # Newly copied files can briefly be absent from Drive's listing index.
-            # Retry verification reads, without uploading a second copy.
-            for attempt in range(5):
-                try:
-                    info = json.loads(self.command('lsjson',remote,'--stat','--hash','--hash-type','MD5'))
-                    remote_hash = next(value for key,value in info.get('Hashes',{}).items() if key.lower() == 'md5')
-                    if remote_hash.lower() != hashlib.md5(raw).hexdigest():
-                        raise ValueError('Drive checksum verification failed')
-                    break
-                except (RuntimeError, subprocess.TimeoutExpired, StopIteration):
-                    if attempt == 4: raise RuntimeError('Drive has not made the uploaded file verifiable yet; local backup is preserved')
-                    time.sleep(2 ** (attempt+1))
-            url = 'https://drive.google.com/file/d/' + info['ID'] + '/view'
+            # rclone verifies size and common hashes against the Drive upload
+            # response; --checksum also checks an already-existing destination.
+            # Reuse that verified result instead of extra eventual-consistency
+            # listing requests. Source: rclone v1.70.2 fs/operations/copy.go verify().
+            self.command('copyto',path,remote,'--immutable','--checksum')
+            url = self.folder_url
             with self.db:
                 self.db.execute('INSERT OR REPLACE INTO uploads VALUES (?,?,?)',(str(path),checksum,url))
             self.write_status()

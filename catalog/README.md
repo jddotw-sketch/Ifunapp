@@ -234,7 +234,8 @@ stop visibly with checkpoints intact; no scheduler is used to conceal failures.
 
 `python -m catalog.drive_upload --watch` runs as a separate Linux process/container.
 It blocks on inotify export events, uploads only complete validated indexes, checks
-SHA256 before copying and Drive MD5 afterward, and persists an upload ledger so
+SHA256 before copying and delegates remote checksum verification to rclone using
+Drive's upload response (and `--checksum` for existing files). It persists a ledger so
 restarts do not duplicate files. Samples/partial exports remain local. No files are
 made public. Google sign-in uses the `drive.file` scope. Credentials belong in a
 private mounted directory, separate from the dashboard; they are never committed.

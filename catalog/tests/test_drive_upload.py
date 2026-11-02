@@ -3,7 +3,6 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
 
 from catalog.backup import export
 from catalog.drive_upload import DriveUploads
@@ -56,21 +55,19 @@ class DriveTests(unittest.TestCase):
         self.assertEqual(1,sum(c[0]=='copyto' for c in calls))
         copy=next(c for c in calls if c[0]=='copyto')
         self.assertIn('--immutable',copy)
+        self.assertIn('--checksum',copy)
         self.assertIn('Fixture-Anikku-Full-',copy[2])
         self.assertEqual(1,json.loads((self.root/'status.json').read_text())['uploaded_files'])
 
-    def test_delayed_drive_index_retries_reads_without_uploading_twice(self):
+    def test_failed_checksum_transfer_is_not_recorded_and_can_resume(self):
         index,result=self.seed()
-        target=index.parent/result['files'][0]['file'];reads=[];writes=[]
-        def command(*args):
-            if args[0]=='copyto':writes.append(args);return ''
-            reads.append(args)
-            if len(reads)<3:raise RuntimeError('Directory not found yet')
-            return json.dumps({'ID':'private-id','Hashes':{'MD5':hashlib.md5(target.read_bytes()).hexdigest()}})
-        self.uploads.command=command
-        with patch('catalog.drive_upload.time.sleep'):
-            self.uploads.sync_index(index)
-        self.assertEqual(1,len(writes));self.assertEqual(3,len(reads))
+        def failed(*args):raise RuntimeError('Checksum verification failed')
+        self.uploads.command=failed
+        with self.assertRaises(RuntimeError):self.uploads.sync_index(index)
+        self.assertEqual(0,self.uploads.db.execute('SELECT count(*) FROM uploads').fetchone()[0])
+        self.uploads.command=lambda *_:''
+        self.uploads.sync_index(index)
+        self.assertEqual(1,self.uploads.db.execute('SELECT count(*) FROM uploads').fetchone()[0])
 
     def test_index_cannot_upload_paths_outside_the_backup_folder(self):
         index,result=self.seed();result['files'][0]['file']='../private.tachibk'
