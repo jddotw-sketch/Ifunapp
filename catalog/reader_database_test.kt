@@ -15,11 +15,22 @@ import tachiyomi.data.DatabaseHandler
 import tachiyomi.data.manga.MangaMapper
 import tachiyomi.domain.category.interactor.GetCategories
 import tachiyomi.domain.manga.interactor.FetchInterval
+import tachiyomi.domain.manga.interactor.GetCustomMangaInfo
+import tachiyomi.domain.manga.model.CustomMangaInfo
+import tachiyomi.domain.manga.repository.CustomMangaRepository
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.addSingletonFactory
 // ADAPTER_IMPORTS
 
 class CatalogDatabaseTest {
     @Test
     fun interruptedRestoreReplaysWithoutChangingExistingUserState() = runBlocking {
+        Injekt.addSingletonFactory {
+            GetCustomMangaInfo(object : CustomMangaRepository {
+                override fun get(mangaId: Long) = null
+                override fun set(mangaInfo: CustomMangaInfo) = Unit
+            })
+        }
         val driver = JdbcSqliteDriver(JdbcSqliteDriver.IN_MEMORY)
         try {
             Database.Schema.create(driver)
