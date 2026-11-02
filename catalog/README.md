@@ -23,7 +23,7 @@ python -m catalog validate --reader anikku --file /data/backups/FILE.tachibk
 On Windows activate `.venv\Scripts\Activate.ps1` instead. Repeat a failed command
 with the same config/database to resume. Keep the SQLite database and WAL together;
 use SQLite's backup API or stop the process before copying them. Only one process
-may own a manifest at a time. No scheduler, hourly monitor, or server deployment is installed.
+may own a manifest at a time. These commands install no scheduler or hourly monitor.
 
 ## Adapters and compatibility
 
@@ -32,7 +32,7 @@ and configurable static HTML. Each real source needs verified parsing rules,
 canonical extension URLs, the exact installed extension's signed 64-bit source ID,
 and an accurate pagination contract. JavaScript, login, anti-bot challenges and
 source-specific APIs may require another implementation of `engine.Adapter`.
-No Rule34Video production scrape or installed-extension playback test has been performed.
+Rule34Video has a live, resumable deployment; installed-extension playback remains unverified.
 `example-config.json` contains a deliberately unusable example endpoint and ID.
 
 `media_type: video` permits only Anikku; `media_type: manga` permits only Komikku.
@@ -155,16 +155,48 @@ benchmark are not implemented. Import the seven files individually. Older unmodi
 readers ignore the marker and use ordinary restore; use the catalog builds for the
 insert-only state-preservation guarantee.
 
-Anikku's default launcher name becomes **Anikku Library Import**, with a teal books
-and white import-arrow vector icon. Existing application IDs stay the same.
-Both readers use versionCode `100000 + GITHUB_RUN_NUMBER` from this workflow.
-The workflow can use a permanent existing certificate from repository secrets:
-`IMPORT_SIGNING_STORE_BASE64`, `IMPORT_SIGNING_STORE_PASSWORD`,
-`IMPORT_SIGNING_KEY_ALIAS`, `IMPORT_SIGNING_KEY_PASSWORD`. It never generates or
-commits a private key. Without those secrets builds use ephemeral debug signing
-and cannot promise an update over an existing installation. Even a permanent new
-key cannot update an APK signed with a different old certificate. Versioning must
-continue through this workflow or a higher coordinated version sequence.
+Anikku's launcher name is **Anikku Library Import**, with a teal books and white
+import-arrow vector icon. It retains `app.anikku.dev`, the existing permanent
+certificate, and the AllDebrid/Nyaa overlay. Both readers use versionCode
+`2000000 + GITHUB_RUN_NUMBER`. Builds require permanent repository secrets with
+prefix `ANIKKU_` or `KOMIKKU_`: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`,
+`KEY_ALIAS`, `KEY_PASSWORD`. Missing signing configuration fails the build.
+Private keys are never committed or included in release assets.
+
+The earlier Komikku build used a temporary runner certificate that was not retained.
+A new certificate cannot update that installation. **Komikku Library Import** uses
+`app.komikku.sourceimport.catalog` to install beside it. Keep the old app, make a
+full backup there, restore into the new app, and verify library/progress before
+removing anything. Subsequent builds of this package reuse its permanent key.
+Anikku updates require the matching previous permanent certificate; an unrelated
+debug-signed installation is not update-compatible. Device installation is unverified.
+
+## Self-hosted dashboard
+
+Run `python -m catalog.dashboard --root /data/dashboard --backups /data/backups
+--sources /data/dashboard/sources.json --origin http://HOST:8087` as one command.
+Keep the service on a trusted private network; it has no account login. The origin
+must match the browser URL. The private source registry is allowlisted server-side;
+the browser cannot supply arbitrary URLs or commands. The deployed instance is
+http://192.168.12.237:8087. It starts test/full collections, shows progress, pauses
+and resumes, and downloads validated backup files. Jobs do not restart themselves
+after a service restart; resume interrupted jobs from the page. No scheduled crawl
+or hourly monitoring is configured. The old standalone Rule34 container is stopped;
+the dashboard owns its original manifest and checkpoint.
+
+`engine_api.py` uses existing installed Suwayomi manga extensions through their
+listing API. Source IDs and canonical keys are preserved; no engine library or
+reading-state changes are made. The production inventory identifies 45 source IDs
+from a saved backup and 54 installed options ready to test, including additional
+language variants. This is not a complete current phone inventory or universal
+support claim. Missing/unknown sources are disabled. Anime sources beyond the
+verified Rule34 adapter need their own adapters and compatibility checks.
+
+HentaiXDickgirl (918523496924275699) and MyHentaiGallery
+(7327582601422280123) passed three-page live listing/export tests: 75 and 69 entries.
+These are partial catalog samples, not complete catalogs. Phone restore and cover/
+chapter refresh still need verification. Engine-relative cover URLs are omitted so
+the installed reader extension can refresh metadata using its own source.
 
 ## Validation and remaining work
 
