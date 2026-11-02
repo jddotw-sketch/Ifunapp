@@ -91,7 +91,13 @@ class DriveUploads:
             if self.folder_url is None:
                 raise RuntimeError('Drive backup folder ID is not configured')
             for index in sorted(self.backups.rglob('*-index.json')):
-                self.sync_index(index)
+                try:
+                    self.sync_index(index)
+                except (FileNotFoundError, RuntimeError):
+                    if index.exists():
+                        raise
+                    # A user removed this collection while an upload scan was active.
+                    continue
             self.write_status()
         except Exception as exc:
             message = str(exc) if isinstance(exc,(ValueError,RuntimeError)) else 'Upload could not finish; local backups are preserved'

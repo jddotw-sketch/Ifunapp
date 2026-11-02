@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 import sqlite3
+import shutil
 import uuid
 
 
@@ -65,6 +66,45 @@ class Jobs:
         if row is None:
             raise KeyError('Collection not found')
         return dict(row)
+
+    def remove(self, key):
+        job = self.get(key)
+        if job['state'] in ('starting', 'running', 'pausing'):
+            raise ValueError('Pause this collection before removing it.')
+        collections = (self.root / 'collections').resolve()
+        folder = (collections / key).resolve()
+        output = Path(job['output']).resolve()
+        manifest = Path(job['manifest']).resolve()
+        if collections.parent != self.root or folder.parent != collections or (collections / key).is_symlink():
+            raise ValueError('Invalid collection folder; nothing was removed.')
+        if key == 'rule34video-initial':
+            state = (self.root.parent / 'state').resolve()
+            if state.parent != self.root.parent or manifest != state / 'rule34video.sqlite' or output != self.backups / 'Rule34Video':
+                raise ValueError('Invalid original collection paths; nothing was removed.')
+        elif manifest != folder / 'manifest.sqlite' or output != self.backups / key:
+            raise ValueError('Invalid collection paths; nothing was removed.')
+        if output.parent != self.backups or Path(job['output']).is_symlink():
+            raise ValueError('Invalid backup folder; nothing was removed.')
+        for other in self.all():
+            if other['id'] != key and Path(other['output']).resolve() == output:
+                raise ValueError('Another collection uses these backups; nothing was removed.')
+        # A controller lock prevents UI workers starting during deletion. Also refuse
+        # a manifest owned by a separate CLI worker. Close before deleting on Windows.
+        if manifest.parent.exists():
+            from .engine import ManifestLock
+            with ManifestLock(manifest):
+                pass
+        if output.exists():
+            shutil.rmtree(output)
+        if folder.exists():
+            shutil.rmtree(folder)
+        if key == 'rule34video-initial':
+            for path in (manifest, Path(str(manifest) + '-wal'), Path(str(manifest) + '-shm'),
+                         Path(str(manifest) + '.lock'), manifest.with_suffix('.config.json')):
+                path.unlink(missing_ok=True)
+        with self.connect() as db:
+            db.execute('DELETE FROM jobs WHERE id=?', (key,))
+        return {'removed': key, 'drive_copies_kept': True}
 
     def all(self):
         with self.connect() as db:

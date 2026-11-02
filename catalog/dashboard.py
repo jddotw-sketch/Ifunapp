@@ -117,6 +117,15 @@ class Controller:
             raise ValueError('Invalid backup path')
         return path
 
+    def remove(self, key, confirmation):
+        with self.lock:
+            job = self.jobs.get(key)
+            if confirmation != job['name']:
+                raise ValueError('Confirm the collection name before removing it.')
+            if job['state'] in ACTIVE or key in self.processes:
+                raise ValueError('Pause this collection and wait for it to stop before removing it.')
+            return self.jobs.remove(key)
+
 
 def handler(controller):
     static = Path(__file__).with_name('web')
@@ -192,8 +201,10 @@ def handler(controller):
                 path = urlsplit(self.path).path
                 if path == '/api/jobs':
                     return self.json(201, controller.create(data))
-                match = re.fullmatch(r'/api/jobs/([a-z0-9-]+)/(pause|resume)', path)
+                match = re.fullmatch(r'/api/jobs/([a-z0-9-]+)/(pause|resume|remove)', path)
                 if match:
+                    if match[2] == 'remove':
+                        return self.json(200, controller.remove(match[1], data.get('confirm_name')))
                     result = controller.pause(match[1]) if match[2] == 'pause' else controller.start(match[1])
                     return self.json(200, result)
                 self.json(404, {'error': 'Action not found'})

@@ -91,6 +91,47 @@ class DashboardTests(unittest.TestCase):
             with self.assertRaises(ValueError): self.controller.start(job['id'])
         self.assertEqual('failed', self.controller.jobs.get(job['id'])['state'])
 
+    def test_remove_needs_confirmation_and_deletes_only_its_own_local_collection(self):
+        job = self.controller.jobs.add(self.source, 'Remove this', 'full')
+        other = self.controller.jobs.add(self.source, 'Keep this', 'full')
+        output = Path(job['output']);output.mkdir(parents=True)
+        (output / 'sample.tachibk').write_bytes(b'local backup')
+        keep = Path(other['manifest']).parent / 'keep.txt';keep.write_text('Keep')
+        with self.assertRaises(ValueError): self.controller.remove(job['id'], 'wrong name')
+        self.assertTrue(output.exists())
+        result = self.controller.remove(job['id'], job['name'])
+        self.assertTrue(result['drive_copies_kept'])
+        self.assertFalse(output.exists())
+        self.assertFalse(Path(job['manifest']).parent.exists())
+        self.assertTrue(keep.exists())
+        with self.assertRaises(KeyError): self.controller.jobs.get(job['id'])
+        self.assertEqual(other['id'], self.controller.jobs.get(other['id'])['id'])
+
+    def test_active_collection_cannot_be_removed(self):
+        job = self.controller.jobs.add(self.source, 'Active', 'full')
+        self.controller.jobs.update(job['id'], state='running')
+        with self.assertRaises(ValueError): self.controller.remove(job['id'], job['name'])
+        self.assertEqual('running', self.controller.jobs.get(job['id'])['state'])
+
+    def test_remove_rejects_outside_backup_paths(self):
+        job = self.controller.jobs.add(self.source, 'Bad path', 'full')
+        keep = self.root / 'outside';keep.mkdir()
+        with self.controller.jobs.connect() as db:
+            db.execute('UPDATE jobs SET output=? WHERE id=?', (str(keep), job['id']))
+        with self.assertRaises(ValueError): self.controller.remove(job['id'], job['name'])
+        self.assertTrue(keep.exists())
+        self.assertEqual(job['id'], self.controller.jobs.get(job['id'])['id'])
+
+    def test_original_rule34_removal_handles_its_separate_manifest(self):
+        state = self.root / 'state';state.mkdir()
+        manifest = state / 'rule34video.sqlite';manifest.write_bytes(b'manifest')
+        config = manifest.with_suffix('.config.json');config.write_text('{}')
+        output = self.root / 'backups/Rule34Video';output.mkdir()
+        job = self.controller.jobs.add(self.source, 'Original collection', 'full', legacy={
+            'id':'rule34video-initial','manifest':str(manifest),'output':str(output),'adapter_config':{}})
+        self.controller.remove(job['id'], job['name'])
+        self.assertFalse(manifest.exists());self.assertFalse(config.exists());self.assertFalse(output.exists())
+
     def test_old_download_links_resolve_to_the_renamed_indexed_backup(self):
         from catalog.backup import export
         from catalog.engine import Entry, Page, Store

@@ -73,3 +73,13 @@ class DriveTests(unittest.TestCase):
         index,result=self.seed();result['files'][0]['file']='../private.tachibk'
         index.write_text(json.dumps(result))
         with self.assertRaises(ValueError):self.uploads.sync_index(index)
+
+    def test_collection_removed_during_scan_does_not_block_other_uploads(self):
+        index,_=self.seed()
+        self.uploads.folder_url='https://drive.google.com/drive/folders/example'
+        def removed(path):
+            path.unlink()
+            raise FileNotFoundError('Collection removed')
+        self.uploads.sync_index=removed
+        self.uploads.scan()
+        self.assertEqual('connected',json.loads((self.root/'status.json').read_text())['status'])
