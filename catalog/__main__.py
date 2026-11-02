@@ -13,6 +13,7 @@ def main():
     parser.add_argument('--db', default='catalog.sqlite')
     parser.add_argument('--interval', type=float, default=1)
     parser.add_argument('--retries', type=int, default=5)
+    parser.add_argument('--workers', type=int, default=1)
     parser.add_argument('--max-pages', type=int, default=1_000_000)
     parser.add_argument('--reader', choices=['anikku', 'komikku'])
     parser.add_argument('--output', default='backups')
@@ -35,7 +36,7 @@ def main():
             if args.command == 'discover':
                 discover(store, adapter, fetch, args.max_pages)
             elif args.command == 'collect':
-                collect(store, fetch)
+                collect(store, fetch, args.workers)
             elif args.command == 'export':
                 print(json.dumps(export(store, adapter, args.reader, args.output, args.allow_partial)))
             print(json.dumps(store.stats()))

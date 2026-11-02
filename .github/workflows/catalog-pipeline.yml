@@ -128,6 +128,15 @@ jobs:
             reader/app/build/test-results/testDebugUnitTest/
             reader/app/build/reports/tests/testDebugUnitTest/
       - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ matrix.reader }}-catalog-patched-sources
+          path: |
+            reader/app/src/main/java/eu/kanade/tachiyomi/data/backup/
+            reader/app/src/test/java/eu/kanade/tachiyomi/data/backup/restore/Catalog*Test.kt
+            reader/app/src/*/AndroidManifest.xml
+            reader/app/build.gradle.kts
+      - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.reader }}-catalog-import-apk
           path: reader/app/build/outputs/apk/debug/*.apk

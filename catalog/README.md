@@ -92,8 +92,9 @@ that source. First-seen metadata wins; this is a snapshot collector, not an upda
 HTTP 429/5xx and network timeouts retry with capped exponential backoff and
 `Retry-After`. HTTP 403/404, invalid markup and invalid JSON fail visibly rather
 than becoming end-of-catalog signals. Default pacing is one request per second;
-the initial implementation deliberately uses one collection worker. Increasing
-concurrency requires a shared per-host limiter and deterministic commit order.
+the default uses one collection worker. `collect --workers 4` overlaps up to four
+requests under the same global limiter/backoff. Commits stay in page order for
+repeatable deduplication; the buffer is bounded by the worker count (maximum 32).
 
 A changing catalog can shift numbered pages during a long run. Use source snapshot
 tokens/stable sorting where available; otherwise completeness cannot be guaranteed.

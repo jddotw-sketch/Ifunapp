@@ -34,16 +34,17 @@ class JsonAdapter:
             raise ValueError('media_type must match the reader: video/anikku or manga/komikku')
         self.identity = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
 
-    def read(self, key):
+    def read(self, key, url_override=None):
         if 'fixture_dir' in self.config:
             # Prevent cursor strings from escaping the fixture directory.
             raw = (Path(self.config['fixture_dir']) / (quote(key, safe='') + '.json')).read_bytes()
         else:
-            url = self.config['url_template'].replace('{key}', quote(key, safe=''))
+            url = url_override or self.config['url_template'].replace('{key}', quote(key, safe=''))
             if not url.startswith('https://'):
                 raise ValueError("HTTP adapters require HTTPS")
             try:
-                request = Request(url, headers={'User-Agent': 'Ifunapp-Catalog/1.0', 'Accept': 'application/json'})
+                accept = 'text/html' if self.config.get('adapter') == 'html' else 'application/json'
+                request = Request(url, headers={'User-Agent': 'Ifunapp-Catalog/1.0', 'Accept': accept})
                 with urlopen(request, timeout=self.config.get('timeout', 30)) as response:
                     raw = response.read(16 * 1024 * 1024 + 1)
             except HTTPError as exc:
@@ -127,13 +128,7 @@ class HtmlAdapter(JsonAdapter):
         if self.mode == 'sequential' and key.startswith('https://'):
             if urlsplit(key).netloc != urlsplit(self.config['base_url']).netloc:
                 raise ValueError('Cursor leaves configured source')
-            # Keep the shared HTTP error, size, pacing and retry policy.
-            config = self.config
-            try:
-                self.config = {**config, 'url_template': key}
-                return super().read(key)
-            finally:
-                self.config = config
+            return super().read(key, url_override=key)
         return super().read(key)
 
 

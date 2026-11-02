@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import sqlite3
 import time
+import threading
+from collections import deque
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Protocol
@@ -117,11 +119,13 @@ class Fetcher:
             raise ValueError("Negative interval/retry count")
         self.adapter, self.interval, self.retries = adapter, interval, retries
         self.sleep, self.clock, self.last = sleep, clock, float('-inf')
+        self.lock, self.cooldown = threading.Lock(), float('-inf')
 
     def __call__(self, key):
         for attempt in range(self.retries + 1):
-            self.sleep(max(0, self.last + self.interval - self.clock()))
-            self.last = self.clock()
+            with self.lock:
+                self.sleep(max(0, max(self.last + self.interval, self.cooldown) - self.clock()))
+                self.last = self.clock()
             try:
                 page = self.adapter.fetch(key)
                 if not isinstance(page, Page) or (not page.exists and page.entries):
@@ -130,7 +134,9 @@ class Fetcher:
             except Retryable as exc:
                 if attempt == self.retries:
                     raise
-                self.sleep(max(exc.retry_after, min(300, 2 ** attempt)))
+                with self.lock:
+                    self.cooldown = max(self.cooldown,
+                        self.clock() + max(exc.retry_after, min(300, 2 ** attempt)))
 
 
 class Retryable(Exception):
@@ -215,23 +221,55 @@ def discover(store, adapter, fetch, max_pages=1_000_000):
         raise ValueError("Unknown adapter discovery mode")
 
 
-def collect(store, fetch):
-    # One bounded listing in memory; deterministic page order gives stable first-seen dedup.
+def collect(store, fetch, workers=1):
+    if not 1 <= workers <= 32:
+        raise ValueError('workers must be between 1 and 32')
+    # Fetch in parallel, commit in page order. Only the owner thread accesses SQLite.
+    # At most workers listings are buffered, so slow commits cannot grow memory forever.
     keys = store.db.execute("SELECT key FROM pages WHERE status!='done' ORDER BY ordinal").fetchall()
-    for (key,) in keys:
-        with store.db:
-            store.db.execute("UPDATE pages SET status='processing',attempts=attempts+1 WHERE key=?", (key,))
-        try:
+    queue = deque()
+    iterator = iter(keys)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        def schedule():
+            item = next(iterator, None)
+            if item is None:
+                return False
+            key = item[0]
+            with store.db:
+                store.db.execute("UPDATE pages SET status='processing',attempts=attempts+1 WHERE key=?", (key,))
             row = store.db.execute("SELECT payload FROM pages WHERE key=?", (key,)).fetchone()
             probe = store.db.execute("SELECT payload FROM probes WHERE key=?", (key,)).fetchone()
-            page = _page_decode(row[0] or probe[0]) if row[0] or probe else fetch(key)
-            if not page.exists and store.checkpoint("discovered") == "yes" and not row[0]:
-                raise ValueError("Previously discovered numbered page disappeared; retry or rediscover")
-            store.commit_page(key, page)
-        except Exception as exc:
+            if row[0] or probe:
+                future = Future()
+                try:
+                    future.set_result(_page_decode(row[0] or probe[0]))
+                except Exception as exc:
+                    future.set_exception(exc)
+            else:
+                future = pool.submit(fetch, key)
+            queue.append((key, future, bool(row[0])))
+            return True
+
+        try:
+            for _ in range(workers):
+                schedule()
+            while queue:
+                key, future, cached_cursor = queue.popleft()
+                try:
+                    page = future.result()
+                    if not page.exists and store.checkpoint('discovered') == 'yes' and not cached_cursor:
+                        raise ValueError('Previously discovered numbered page disappeared; retry or rediscover')
+                    store.commit_page(key, page)
+                except Exception as exc:
+                    with store.db:
+                        store.db.execute("UPDATE pages SET status='failed',error=? WHERE key=?", (str(exc), key))
+                    raise
+                schedule()
+        finally:
+            for _, future, _ in queue:
+                future.cancel()
             with store.db:
-                store.db.execute("UPDATE pages SET status='failed',error=? WHERE key=?", (str(exc), key))
-            raise
+                store.db.execute("UPDATE pages SET status='pending' WHERE status='processing'")
 
 
 class ManifestLock:

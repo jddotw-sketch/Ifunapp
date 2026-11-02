@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+import time
 from pathlib import Path
 
 from catalog.backup import export, validate
@@ -168,6 +169,28 @@ class PipelineTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.commit_page('1', Page(True, (Entry('/good', 'Good'), Entry('', 'Bad'))))
         self.assertEqual(0, self.store.stats()['entries'])
+
+    def test_parallel_fetch_keeps_commit_order_and_resumes(self):
+        with self.store.db:
+            for n in range(1, 9):
+                self.store.add_page(str(n), n)
+            self.store.put_checkpoint('discovered', 'yes')
+
+        def fetch(key):
+            if key == '1':
+                time.sleep(0.02)  # Later pages finish first.
+            if key == '5':
+                raise Retryable('failure')
+            return Page(True, (Entry('/same', f'Page {key}'), Entry('/' + key, key)))
+
+        with self.assertRaises(Retryable):
+            collect(self.store, fetch, workers=4)
+        self.assertEqual(5, self.store.stats()['entries'])
+        self.assertNotIn('processing', self.store.stats()['pages'])
+        collect(self.store, lambda key: Page(True, (Entry('/' + key, key),)), workers=4)
+        self.assertEqual(9, self.store.stats()['entries'])
+        row = self.store.db.execute("SELECT payload FROM entries WHERE url='/same'").fetchone()
+        self.assertEqual('Page 1', json.loads(row[0])['title'])
 
 
 if __name__ == '__main__':

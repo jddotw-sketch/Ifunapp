@@ -80,8 +80,10 @@ def patch(root, reader):
                     if (options.categories) backup.backupCategories else emptyList(),
                 ) { processed ->
                     restoreProgress = processed
-                    notifier.showRestoreProgress("Catalog import", processed, restoreAmount, false)
-                        .show(Notifications.ID_RESTORE_PROGRESS)
+                    with(notifier) {
+                        showRestoreProgress("Catalog import", processed, restoreAmount, false)
+                            .show(Notifications.ID_RESTORE_PROGRESS)
+                    }
                 }
             }
             return
@@ -107,7 +109,7 @@ def patch(root, reader):
     suspend fun restoreCatalog(
         entries: List<BackupManga>,
         backupCategories: List<BackupCategory>,
-        progress: (Int) -> Unit,
+        progress: suspend (Int) -> Unit,
     ) {
         eu.kanade.tachiyomi.data.backup.restore.CatalogRestoreValidation.check(entries)
         val categoriesByName = getCategories.await().associateBy { it.name }
@@ -192,11 +194,11 @@ class CatalogWireTest {
 }
 ''', encoding='utf-8')
     if reader == 'anikku':
-        path = root / 'app/src/main/AndroidManifest.xml'
-        text = path.read_text(encoding='utf-8').replace('android:label="@string/app_name"',
-                'android:label="Anikku Library Import"').replace('android:icon="@mipmap/ic_launcher"',
-                'android:icon="@drawable/catalog_launcher"')
-        path.write_text(text, encoding='utf-8')
+        for path in (root / 'app/src').glob('*/AndroidManifest.xml'):
+            text = path.read_text(encoding='utf-8').replace('android:label="@string/app_name"',
+                    'android:label="Anikku Library Import"').replace('android:icon="@mipmap/ic_launcher"',
+                    'android:icon="@drawable/catalog_launcher"')
+            path.write_text(text, encoding='utf-8')
         drawable = root / 'app/src/main/res/drawable/catalog_launcher.xml'
         drawable.write_text('''<vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
