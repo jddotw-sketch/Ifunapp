@@ -126,7 +126,7 @@ class DashboardTests(unittest.TestCase):
         state = self.root / 'state';state.mkdir()
         manifest = state / 'rule34video.sqlite';manifest.write_bytes(b'manifest')
         config = manifest.with_suffix('.config.json');config.write_text('{}')
-        output = self.root / 'backups/Rule34Video';output.mkdir()
+        output = self.root / 'backups/Rule34Video';output.mkdir(parents=True)
         job = self.controller.jobs.add(self.source, 'Original collection', 'full', legacy={
             'id':'rule34video-initial','manifest':str(manifest),'output':str(output),'adapter_config':{}})
         self.controller.remove(job['id'], job['name'])
