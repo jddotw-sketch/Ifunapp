@@ -116,7 +116,7 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew spotlessApply --stacktrace
-          ./gradlew :app:testDebugUnitTest --tests '*CatalogWireTest' --tests '*SourceImport*Test' --stacktrace
+          ./gradlew :app:testDebugUnitTest --tests '*Catalog*Test' --tests '*SourceImport*Test' --stacktrace
       - name: Build APK
         working-directory: reader
         run: ./gradlew assembleDebug --stacktrace

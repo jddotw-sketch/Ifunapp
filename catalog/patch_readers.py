@@ -19,6 +19,50 @@ def patch(root, reader):
                         'data class Backup(\n    @ProtoNumber(900) val catalogVersion: Int = 0,\n')
     path.write_text(text, encoding='utf-8')
 
+    # A real SQLite integration test uses each reader's generated queries/adapters.
+    app_module = (root / 'app/src/main/java/eu/kanade/tachiyomi/di/AppModule.kt').read_text(encoding='utf-8')
+    start = app_module.index('            Database(\n') + 12
+    depth, end = 0, start
+    for end in range(start + len('Database'), len(app_module)):
+        if app_module[end] == '(':
+            depth += 1
+        elif app_module[end] == ')':
+            depth -= 1
+            if depth == 0:
+                break
+    constructor = app_module[start:end + 1].replace('driver = get()', 'driver = driver')
+    imports = '\n'.join(line for line in app_module.splitlines()
+                        if line.startswith('import tachiyomi.data.') and line not in
+                        ('import tachiyomi.data.Database', 'import tachiyomi.data.DatabaseHandler',
+                         'import tachiyomi.data.AndroidDatabaseHandler'))
+    restorer_text = (java / 'restore/restorers/MangaRestorer.kt').read_text(encoding='utf-8')
+    ctor = restorer_text.split('class MangaRestorer(', 1)[1].split(') {', 1)[0]
+    mock_args = '\n'.join(f'                {name} = mockk(),'
+        for name in re.findall(r'private val (\w+):', ctor)
+        if name not in ('handler', 'getCategories'))
+    is_anime = reader == 'anikku'
+    replacements = {
+        'DATABASE_CONSTRUCTOR': constructor,
+        '// ADAPTER_IMPORTS': imports,
+        '// MOCK_CONSTRUCTOR_ARGS': mock_args,
+        'QUERY': 'animesQueries' if is_anime else 'mangasQueries',
+        'LOOKUP': 'getAnimeByUrlAndSource' if is_anime else 'getMangaByUrlAndSource',
+        'CAT_TABLE': 'animes_categories' if is_anime else 'mangas_categories',
+        'FOREIGN_ID': 'anime_id' if is_anime else 'manga_id',
+        'STATE_TABLE': 'episodes' if is_anime else 'chapters',
+        'STATE_COLUMNS': ('anime_id,url,name,seen,bookmark,fillermark,last_second_seen,total_seconds,episode_number,source_order,date_fetch,date_upload'
+                          if is_anime else 'manga_id,url,name,read,bookmark,last_page_read,chapter_number,source_order,date_fetch,date_upload'),
+        'STATE_VALUES': ("$id,'/chapter','Keep state',1,1,1,123,456,1,0,0,0" if is_anime else "$id,'/chapter','Keep state',1,1,123,1,0,0,0"),
+        'STATE_SUM': 'seen+bookmark+last_second_seen' if is_anime else 'read+bookmark+last_page_read',
+        'TABLE': 'animes' if is_anime else 'mangas',
+    }
+    test_text = Path(__file__).with_name('reader_database_test.kt').read_text(encoding='utf-8')
+    for old, new in replacements.items():
+        test_text = test_text.replace(old, new)
+    test_path = root / 'app/src/test/java/eu/kanade/tachiyomi/data/backup/restore/CatalogDatabaseTest.kt'
+    test_path.parent.mkdir(parents=True, exist_ok=True)
+    test_path.write_text(test_text, encoding='utf-8')
+
     path = java / 'restore/BackupRestorer.kt'
     text = path.read_text(encoding='utf-8')
     text = replace_once(text, '        val backup = BackupDecoder(context).decode(uri)', '''        val backup = BackupDecoder(context).decode(uri)
@@ -163,6 +207,10 @@ class CatalogWireTest {
 ''', encoding='utf-8')
     path = root / 'app/build.gradle.kts'
     text = path.read_text(encoding='utf-8')
+    version_file = (root / 'gradle/libs.versions.toml').read_text(encoding='utf-8')
+    sql_version = re.search(r'^sqldelight = "([^"]+)"', version_file, re.M).group(1)
+    text = replace_once(text, '\ndependencies {\n',
+        f'\ndependencies {{\n    testImplementation("app.cash.sqldelight:sqlite-driver:{sql_version}")\n')
     text, count = re.subn(r'versionCode = \d+', 'versionCode = 100000 + (System.getenv("GITHUB_RUN_NUMBER")?.toInt() ?: 0)', text, count=1)
     if count != 1:
         raise ValueError('Missing versionCode')
