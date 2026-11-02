@@ -32,7 +32,8 @@ class JsonAdapter:
         allowed = {'video': {'anikku'}, 'manga': {'komikku'}}.get(config.get('media_type'), set())
         if not set(self.reader_sources) <= allowed:
             raise ValueError('media_type must match the reader: video/anikku or manga/komikku')
-        collection_config = {k: v for k, v in config.items() if k not in ('reader_sources', 'media_type')}
+        collection_config = {k: v for k, v in config.items()
+                             if k not in ('reader_sources', 'media_type', 'timeout')}
         self.identity = hashlib.sha256(json.dumps(collection_config, sort_keys=True).encode()).hexdigest()
 
     def read(self, key, url_override=None):

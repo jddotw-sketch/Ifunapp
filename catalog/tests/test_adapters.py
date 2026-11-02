@@ -25,6 +25,7 @@ class AdapterTests(unittest.TestCase):
         complete = JsonAdapter(config)
         config.pop('reader_sources')
         config.pop('media_type')
+        config['timeout'] = 90
         collection_only = JsonAdapter(config)
         self.assertEqual({}, collection_only.reader_sources)
         self.assertEqual(complete.identity, collection_only.identity)
