@@ -100,6 +100,10 @@ def validate(path, reader, expected=None):
 def export(store, adapter, reader, directory, allow_partial=False):
     if reader not in adapter.reader_sources:
         raise ValueError(f'{adapter.name} has no compatible {reader} source mapping')
+    source_setting = f'export_source:{reader}'
+    source_id = str(adapter.reader_sources[reader])
+    if store.get(source_setting) not in (None, source_id):
+        raise ValueError('Reader source ID changed after export; do not mix incompatible backup sets')
     stats = store.stats()
     if not allow_partial and (not stats['discovery_complete'] or
             any(s != 'done' and count for s, count in stats['pages'].items())):
@@ -108,6 +112,7 @@ def export(store, adapter, reader, directory, allow_partial=False):
     directory.mkdir(parents=True, exist_ok=True)
     # Append-only ordinals survive later collection and repeated exports. No OFFSET scans.
     with store.db:
+        store.db.execute('INSERT OR IGNORE INTO settings VALUES (?,?)', (source_setting, source_id))
         offset = store.db.execute('SELECT coalesce(max(ordinal),0) FROM export_entries WHERE reader=?',
                                   (reader,)).fetchone()[0]
         store.db.execute('''INSERT INTO export_entries(reader,entry_id,ordinal)

@@ -36,6 +36,11 @@ No Rule34Video production scrape or installed-extension playback test has been p
 `example-config.json` contains a deliberately unusable example endpoint and ID.
 
 `media_type: video` permits only Anikku; `media_type: manga` permits only Komikku.
+For collection-only sources, omit `reader_sources` or set it to `{}`. Collection
+works independently of either reader. Add a verified mapping and `media_type` later
+to export the same database without refetching. These two export settings do not
+change collection identity. After the first export, changing that reader's source
+ID is rejected to prevent silently mixing incompatible backup sets.
 The source ID must come from that reader's extension, not from the website or a
 different reader. A declared mapping is a configuration contract, not evidence
 that an arbitrary installed extension is compatible. Never invent source IDs.
@@ -167,6 +172,9 @@ Run `python -m unittest discover -s catalog/tests -v`. GitHub Actions also expor
 336,277 synthetic entries per reader, checks all seven files, and uploads the scale
 index/checksums. It generates 5,001-entry fixtures and decodes them with the actual
 Kotlin reader schemas, then runs the existing importer tests and builds both APKs.
+A SQLite integration test seeds a non-favorite entry with notes, viewer flags,
+categories, bookmarks and reading/watching progress. It injects an insertion failure
+inside a chunk, verifies rollback, replays twice and checks existing state is unchanged.
 Synthetic fixture backups are NOT real catalog downloads.
 
 Production acceptance still needs a verified adapter/config for each desired live

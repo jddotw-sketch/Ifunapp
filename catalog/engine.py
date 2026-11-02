@@ -67,8 +67,7 @@ class Store:
                 reader TEXT NOT NULL, entry_id INTEGER NOT NULL, ordinal INTEGER NOT NULL,
                 PRIMARY KEY(reader, entry_id), UNIQUE(reader, ordinal));
         """)
-        identity = json.dumps([adapter.identity, adapter.mode, adapter.first_key,
-                               adapter.reader_sources], sort_keys=True)
+        identity = json.dumps([adapter.identity, adapter.mode, adapter.first_key], sort_keys=True)
         old = self.get("identity")
         if old is not None and old != identity:
             self.db.close()

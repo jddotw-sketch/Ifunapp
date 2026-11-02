@@ -163,6 +163,14 @@ class PipelineTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             Store(self.root / 'manifest.sqlite', self.adapter)
 
+    def test_export_source_mapping_cannot_silently_change(self):
+        self.seed(1)
+        self.adapter.reader_sources = dict(self.adapter.reader_sources)
+        export(self.store, self.adapter, 'anikku', self.root)
+        self.adapter.reader_sources['anikku'] = 987
+        with self.assertRaises(ValueError):
+            export(self.store, self.adapter, 'anikku', self.root)
+
     def test_atomic_page_validation(self):
         with self.store.db:
             self.store.add_page('1', 1)

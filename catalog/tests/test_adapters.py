@@ -20,6 +20,15 @@ class AdapterTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             JsonAdapter(config)
 
+    def test_collection_identity_does_not_require_a_compatible_reader(self):
+        config = self.config()
+        complete = JsonAdapter(config)
+        config.pop('reader_sources')
+        config.pop('media_type')
+        collection_only = JsonAdapter(config)
+        self.assertEqual({}, collection_only.reader_sources)
+        self.assertEqual(complete.identity, collection_only.identity)
+
     def test_http_failures_are_not_page_boundaries(self):
         for code in (429, 502, 404, 403):
             with patch('catalog.adapters.urlopen', side_effect=HTTPError('url', code, 'error', {'Retry-After': '3'}, None)):

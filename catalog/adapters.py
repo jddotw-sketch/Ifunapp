@@ -25,14 +25,15 @@ class JsonAdapter:
         self.name = config['name']
         self.mode = config['mode']
         self.first_key = str(config.get('first_key', '1'))
-        self.reader_sources = config['reader_sources']
-        if not self.reader_sources or any(r not in ('anikku', 'komikku') or
+        self.reader_sources = config.get('reader_sources', {})
+        if any(r not in ('anikku', 'komikku') or
                 type(s) is not int or not -(2**63) <= s < 2**63 for r, s in self.reader_sources.items()):
             raise ValueError("Explicit signed 64-bit reader source IDs are required")
-        allowed = {'video': {'anikku'}, 'manga': {'komikku'}}.get(config.get('media_type'))
-        if allowed is None or not set(self.reader_sources) <= allowed:
+        allowed = {'video': {'anikku'}, 'manga': {'komikku'}}.get(config.get('media_type'), set())
+        if not set(self.reader_sources) <= allowed:
             raise ValueError('media_type must match the reader: video/anikku or manga/komikku')
-        self.identity = hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()
+        collection_config = {k: v for k, v in config.items() if k not in ('reader_sources', 'media_type')}
+        self.identity = hashlib.sha256(json.dumps(collection_config, sort_keys=True).encode()).hexdigest()
 
     def read(self, key, url_override=None):
         if 'fixture_dir' in self.config:
