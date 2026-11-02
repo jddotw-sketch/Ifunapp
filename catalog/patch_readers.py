@@ -117,8 +117,9 @@ object CatalogRestoreValidation {
 
 import eu.kanade.tachiyomi.data.backup.models.Backup
 import kotlinx.serialization.protobuf.ProtoBuf
-import org.junit.Assert.*
-import org.junit.Test
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Test
 import java.io.File
 import java.util.zip.GZIPInputStream
 
@@ -138,9 +139,11 @@ class CatalogWireTest {
         CatalogRestoreValidation.check(backup.backupManga)
     }
 
-    @Test(expected = IllegalArgumentException::class)
+    @Test
     fun emptyCatalogIsRejected() {
-        CatalogRestoreValidation.check(emptyList())
+        assertThrows(IllegalArgumentException::class.java) {
+            CatalogRestoreValidation.check(emptyList())
+        }
     }
 }
 ''', encoding='utf-8')

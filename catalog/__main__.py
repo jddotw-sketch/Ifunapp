@@ -1,7 +1,7 @@
 import argparse
 import json
 
-from .adapters import JsonAdapter
+from .adapters import make_adapter
 from .backup import export, validate
 from .engine import Fetcher, ManifestLock, Store, collect, discover
 
@@ -27,7 +27,7 @@ def main():
     if not args.config or (args.command == 'export' and not args.reader):
         parser.error('--config is required; export also requires --reader')
     with open(args.config, encoding='utf-8') as f:
-        adapter = JsonAdapter(json.load(f))
+        adapter = make_adapter(json.load(f))
     with ManifestLock(args.db):
         store = Store(args.db, adapter)
         try:
