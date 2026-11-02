@@ -1,0 +1,74 @@
+name: Deliver verified universal reader APKs
+on:
+  push:
+    branches: [feat/catalog-dashboard]
+    paths: ['.github/workflows/catalog-delivery.yml']
+permissions:
+  contents: write
+  actions: read
+jobs:
+  deliver:
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      VERIFIED_RUN: '41506194133'
+      VERIFIED_SHA: f2a67e62713b280c81e8005c81c516d7f40cff14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require the tested native build
+        run: |
+          for attempt in $(seq 1 15); do
+            state=$(gh api "repos/$GH_REPO/actions/runs/$VERIFIED_RUN" --jq .status)
+            [ "$state" = completed ] && break
+            sleep 10
+          done
+          test "$(gh api "repos/$GH_REPO/actions/runs/$VERIFIED_RUN" --jq .conclusion)" = success
+          test "$(gh api "repos/$GH_REPO/actions/runs/$VERIFIED_RUN" --jq .head_sha)" = "$VERIFIED_SHA"
+      - name: Download only artifacts from that build
+        run: |
+          gh run download "$VERIFIED_RUN" -n anikku-catalog-import-apk -D downloads/anikku
+          gh run download "$VERIFIED_RUN" -n komikku-catalog-import-apk -D downloads/komikku
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Select universal APKs and verify their signing certificates
+        run: |
+          mkdir delivery
+          test "$(find downloads/anikku -name '*universal*.apk' | wc -l)" -eq 1
+          test "$(find downloads/komikku -name '*universal*.apk' | wc -l)" -eq 1
+          cp "$(find downloads/anikku -name '*universal*.apk')" delivery/Anikku-Library-Import-universal.apk
+          cp "$(find downloads/komikku -name '*universal*.apk')" delivery/Komikku-Library-Import-universal.apk
+          signer=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -n 1)
+          "$signer" verify --print-certs delivery/Anikku-Library-Import-universal.apk > delivery/Anikku-signature.txt
+          grep -qi 99bddbaf84ee497d5a19371352db52267b9a04ea1adf8988a47518d6b3268d62 delivery/Anikku-signature.txt
+          "$signer" verify --print-certs delivery/Komikku-Library-Import-universal.apk > delivery/Komikku-signature.txt
+          grep -qi 7eddac3e2217f435334885970a9f17a7ed9b3b8963607dfd61f26ad85b1499bb delivery/Komikku-signature.txt
+          cd delivery
+          sha256sum *.apk > SHA256SUMS.txt
+      - name: Publish the verified downloads
+        run: |
+          cat > delivery/INSTALL.txt <<'TXT'
+          Anikku Library Import: app.anikku.dev; reuses the permanent Anikku signing certificate.
+          Its versionCode is higher than the earlier permanently signed AllDebrid build.
+          It preserves AllDebrid, Nyaa cover behavior, the importer and catalog restoration.
+
+          Komikku Library Import: app.komikku.sourceimport.catalog.
+          This installs beside the old app because its temporary runner key was not retained.
+          Keep the old app. Create a full backup there, restore it in the new app, and verify
+          your library and reading progress before deciding whether to remove anything.
+          Future builds of this new package reuse its permanent signing key.
+
+          Both downloads are universal APKs; you do not need to choose an architecture.
+          The APKs and certificates were verified in GitHub Actions. Physical-device
+          installation/update behavior still needs confirmation on the user's phone.
+          No private signing keys are included in the APKs or this release.
+          TXT
+          tag=catalog-readers-f2a67e6
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo 'This immutable reader release already exists.'
+            exit 0
+          fi
+          gh release create "$tag" delivery/* --target "$VERIFIED_SHA" --prerelease \
+            --title 'Catalog readers — permanent signing and installation fix' --notes-file delivery/INSTALL.txt
