@@ -1,13 +1,13 @@
 name: Catalog pipeline and reader builds
 on:
   push:
-    branches: [catalog-pipeline]
+    branches: [catalog-pipeline, anikku-importer-port]
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
   group: catalog-${{ github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   pipeline:
     runs-on: ubuntu-24.04
@@ -105,6 +105,8 @@ jobs:
           distribution: temurin
           java-version: '21'
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
       - uses: actions/download-artifact@v4
         with:
           name: catalog-wire-fixtures
