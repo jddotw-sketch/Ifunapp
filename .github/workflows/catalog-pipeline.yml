@@ -2,13 +2,11 @@ name: Catalog pipeline and reader builds
 on:
   push:
     branches: [catalog-pipeline]
-  pull_request:
-    paths: ['catalog/**', '.github/workflows/catalog-pipeline.yml']
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: catalog-${{ github.ref }}
+  group: catalog-${{ github.ref_name }}
   cancel-in-progress: true
 jobs:
   pipeline:
