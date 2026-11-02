@@ -1,0 +1,22 @@
+name: Catalog dashboard tests
+on:
+  push:
+    branches: [feat/catalog-dashboard, catalog-pipeline]
+    paths: ['catalog/**', '.github/workflows/catalog-dashboard.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dashboard:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r catalog/requirements.txt
+      - run: python -m unittest discover -s catalog/tests -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node --check catalog/web/app.js
