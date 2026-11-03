@@ -6,6 +6,7 @@ requests populate its metadata cache but never add entries to its library.
 import hashlib
 from http.client import IncompleteRead, RemoteDisconnected
 import json
+import re
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -37,9 +38,24 @@ class EngineAdapter:
             with urlopen(Request(url, headers={'Accept': 'application/json'}), timeout=90) as response:
                 raw = response.read(16 * 1024 * 1024 + 1)
         except HTTPError as exc:
-            if exc.code == 429 or 500 <= exc.code < 600:
-                raise Retryable(f'Extension engine returned HTTP {exc.code}', retry_after=5) from exc
-            raise ValueError(f'Extension engine returned HTTP {exc.code}') from exc
+            # Suwayomi can wrap the website's HTTP 429 in an engine HTTP 500.
+            # Inspect only a bounded response for the status; never expose its body,
+            # which can contain URLs, headers or credentials, in dashboard errors.
+            try:
+                detail = exc.read(8192).decode('utf-8', errors='replace')
+            except (OSError, IncompleteRead):
+                detail = ''
+            limited = exc.code == 429 or bool(re.search(r'HTTP(?: error| status)?[ :]+429\b', detail, re.I))
+            context = f'{self.name}, page {key}'
+            if limited:
+                delay = 60
+                value = (exc.headers or {}).get('Retry-After', '')
+                if str(value).isdigit():
+                    delay = min(300, max(delay, int(value)))
+                raise Retryable(f'{context}: source rate limit; waiting before retrying', retry_after=delay) from exc
+            if 500 <= exc.code < 600:
+                raise Retryable(f'{context}: extension engine returned HTTP {exc.code}', retry_after=15) from exc
+            raise ValueError(f'{context}: extension engine returned HTTP {exc.code}') from exc
         except (URLError, TimeoutError, IncompleteRead, RemoteDisconnected, ConnectionError) as exc:
             raise Retryable('Extension request timed out or could not connect', retry_after=3) from exc
         if len(raw) > 16 * 1024 * 1024:

@@ -70,7 +70,9 @@ def run(registry, key):
         if not config_path.exists():
             config_path.write_text(json.dumps(config, indent=2) + '\n')
         adapter = make_adapter(source, config)
-        fetch = Fetcher(adapter, interval=1.0, retries=5)
+        # NHentai's extension is sensitive to sustained listing request rates.
+        interval = 3.0 if source['kind'] == 'engine' and source['name'].lower() == 'nhentai' else 1.0
+        fetch = Fetcher(adapter, interval=interval, retries=8 if source['kind'] == 'engine' else 5)
         with ManifestLock(job['manifest']):
             store = Store(job['manifest'], adapter)
             registry.update(key, stage='discovering')

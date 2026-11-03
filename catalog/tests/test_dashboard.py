@@ -1,4 +1,5 @@
 import json
+import io
 from pathlib import Path
 import tempfile
 import threading
@@ -54,6 +55,23 @@ class EngineTests(unittest.TestCase):
         for status in (404, 429, 502):
             with patch('catalog.engine_api.urlopen', side_effect=HTTPError('url', status, 'error', {}, None)):
                 with self.assertRaises(Retryable if status in (429, 502) else ValueError): self.adapter().fetch('1')
+
+
+    def test_wrapped_rate_limit_waits_and_does_not_leak_error_body(self):
+        body = io.BytesIO(b'{"message":"HTTP error 429", "private":"secret-token"}')
+        error = HTTPError('url', 500, 'error', {}, body)
+        with patch('catalog.engine_api.urlopen', side_effect=error):
+            with self.assertRaises(Retryable) as caught: self.adapter().fetch('133')
+        self.assertEqual(60, caught.exception.retry_after)
+        self.assertIn('page 133', str(caught.exception))
+        self.assertNotIn('secret-token', str(caught.exception))
+
+    def test_rate_limit_honors_bounded_retry_after(self):
+        for value, expected in [('120',120), ('9999',300), ('invalid',60)]:
+            error = HTTPError('url',429,'error',{'Retry-After':value},io.BytesIO(b''))
+            with patch('catalog.engine_api.urlopen', side_effect=error):
+                with self.assertRaises(Retryable) as caught: self.adapter().fetch('2')
+            self.assertEqual(expected, caught.exception.retry_after)
 
 
 class DashboardTests(unittest.TestCase):

@@ -262,3 +262,13 @@ Sources outside the configured inventory still need verified adapters/configs.
 Production acceptance needs on-device installed-extension URL/playback checks, Android restore tests
 against a pre-populated library with a forced interruption, and on-device timings.
 The code makes no claim that 336,277 entries have been crawled or restored on a phone.
+
+### Source throttling
+
+Extension collectors retry temporary engine failures up to eight times per page.
+Website HTTP 429 errors wrapped in engine HTTP 500 responses receive a minimum
+60-second cooldown; numeric Retry-After values are honored up to five minutes.
+NHentai listing requests are spaced at least three seconds apart. Persistent
+failures still stop visibly with the page checkpoint retained. Errors identify the
+source and page without displaying upstream response bodies. No scheduled restart
+or monitoring task is added.
