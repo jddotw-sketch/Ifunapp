@@ -23,7 +23,7 @@ python -m catalog validate --reader anikku --file /data/backups/FILE.tachibk
 On Windows activate `.venv\Scripts\Activate.ps1` instead. Repeat a failed command
 with the same config/database to resume. Keep the SQLite database and WAL together;
 use SQLite's backup API or stop the process before copying them. Only one process
-may own a manifest at a time. No scheduler, hourly monitor, or server deployment is installed.
+may own a manifest at a time. These commands install no scheduler or hourly monitor.
 
 ## Adapters and compatibility
 
@@ -32,7 +32,7 @@ and configurable static HTML. Each real source needs verified parsing rules,
 canonical extension URLs, the exact installed extension's signed 64-bit source ID,
 and an accurate pagination contract. JavaScript, login, anti-bot challenges and
 source-specific APIs may require another implementation of `engine.Adapter`.
-No Rule34Video production scrape or installed-extension playback test has been performed.
+Rule34Video has a live, resumable deployment; installed-extension playback remains unverified.
 `example-config.json` contains a deliberately unusable example endpoint and ID.
 
 `media_type: video` permits only Anikku; `media_type: manga` permits only Komikku.
@@ -155,16 +155,97 @@ benchmark are not implemented. Import the seven files individually. Older unmodi
 readers ignore the marker and use ordinary restore; use the catalog builds for the
 insert-only state-preservation guarantee.
 
-Anikku's default launcher name becomes **Anikku Library Import**, with a teal books
-and white import-arrow vector icon. Existing application IDs stay the same.
-Both readers use versionCode `100000 + GITHUB_RUN_NUMBER` from this workflow.
-The workflow can use a permanent existing certificate from repository secrets:
-`IMPORT_SIGNING_STORE_BASE64`, `IMPORT_SIGNING_STORE_PASSWORD`,
-`IMPORT_SIGNING_KEY_ALIAS`, `IMPORT_SIGNING_KEY_PASSWORD`. It never generates or
-commits a private key. Without those secrets builds use ephemeral debug signing
-and cannot promise an update over an existing installation. Even a permanent new
-key cannot update an APK signed with a different old certificate. Versioning must
-continue through this workflow or a higher coordinated version sequence.
+Anikku's launcher name is **Anikku Library Import**, with a teal books and white
+import-arrow vector icon. It retains `app.anikku.dev`, the existing permanent
+certificate, and the AllDebrid/Nyaa overlay. Both readers use versionCode
+`2000000 + GITHUB_RUN_NUMBER`. Builds require permanent repository secrets with
+prefix `ANIKKU_` or `KOMIKKU_`: `KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`,
+`KEY_ALIAS`, `KEY_PASSWORD`. Missing signing configuration fails the build.
+Private keys are never committed or included in release assets.
+
+The earlier Komikku build used a temporary runner certificate that was not retained.
+A new certificate cannot update that installation. **Komikku Library Import** uses
+`app.komikku.sourceimport.catalog` to install beside it. Keep the old app, make a
+full backup there, restore into the new app, and verify library/progress before
+removing anything. Subsequent builds of this package reuse its permanent key.
+Anikku updates require the matching previous permanent certificate; an unrelated
+debug-signed installation is not update-compatible. Device installation is unverified.
+
+## Self-hosted dashboard
+
+Run `python -m catalog.dashboard --root /data/dashboard --backups /data/backups
+--sources /data/dashboard/sources.json --origin http://HOST:8087` as one command.
+Keep the service on a trusted private network; it has no account login. The origin
+must match the browser URL. The private source registry is allowlisted server-side;
+the browser cannot supply arbitrary URLs or commands. The deployed instance is
+http://192.168.12.237:8087. It starts test/full collections, shows progress, pauses
+and resumes, and downloads validated backup files. Jobs do not restart themselves
+after a service restart; resume interrupted jobs from the page. No scheduled crawl
+or hourly monitoring is configured. The old standalone Rule34 container is stopped;
+the dashboard owns its original manifest and checkpoint.
+
+`engine_api.py` uses existing installed Suwayomi manga extensions through their
+listing API. Source IDs and canonical keys are preserved; no engine library or
+reading-state changes are made. The production inventory identifies 45 source IDs
+from a saved backup and 54 installed options ready to test, including additional
+language variants. This is not a complete current phone inventory or universal
+support claim. Missing/unknown sources are disabled. Anime sources beyond the
+requested screenshot list still need adapters and compatibility checks.
+
+HentaiMama's direct adapter (`hentaimama.py`, source ID 8058423919997530503)
+follows the extension's canonical `/tvshows/.../` keys and alphabetical series
+listing. It verifies the requested page, a persisted published page-count snapshot,
+and next links before following sequential pagination. Layout changes, challenges,
+empty pages or changing counts fail visibly instead of producing a false complete
+backup. Only catalog metadata is collected, without episode/video requests.
+The private inventory matches the screenshot's eleven extensions to twelve signed
+source IDs. `anime_sources.py` implements the other ten sources: hanime.tv,
+HentaiHaven, Hstream, MissAV, Movy, Xvideos, PTorrent, Hentai Torrent and both Nyaa
+sources. Reference code is pinned to Yuzono commit
+`82f89fde63e90090b4868b2003a812c19f714a39`. Each passed first/next-page checks and
+a three-page dashboard collection/export. HentaiHaven, Movy and hanime also passed
+final-page checks. Full means the listing exposed by a source, not its entire
+archive: Nyaa applies browse limits and Movy exposes at most 500 trending pages.
+Movy excludes unplayable person records and retains Anikku's actual enum values
+(Seasons=0, Episodes=1) through protobuf field 507. Kotlin interoperability tests
+verify that encoding with the real reader schema. hanime caches its complete
+public search response on disk and groups series using the extension's rules.
+Phone playback/restore remains unverified for each source. Library backups do not
+enumerate unused installed extensions. The source inventory stays private.
+
+HentaiXDickgirl (918523496924275699) and MyHentaiGallery
+(7327582601422280123) passed three-page live listing/export tests: 75 and 69 entries.
+The initial samples remain labeled partial. Their later complete listing snapshots
+contain 2,506 and 60,049 unique entries, respectively. Phone restore and cover/
+chapter refresh still need verification. Engine-relative cover URLs are omitted so
+the installed reader extension can refresh metadata using its own source.
+
+## Readable filenames and private Google Drive uploads
+
+Backup names contain the source, reader, Full/Sample label, stable snapshot namespace
+and part number. Category names/orders are unchanged. Re-exporting existing completed
+jobs changes filenames without changing backup bytes; old download URLs remain aliases
+for the corresponding indexed files. Only a fresh matching index is authoritative.
+
+The transport retries truncated HTTP bodies (`IncompleteRead`), remote disconnects
+and connection resets through the existing rate limiter/backoff. These errors no
+longer immediately stop Rule34Video. Persistent errors and invalid layouts still
+stop visibly with checkpoints intact; no scheduler is used to conceal failures.
+
+`python -m catalog.drive_upload --watch` runs as a separate Linux process/container.
+It blocks on inotify export events, uploads only complete validated indexes, checks
+SHA256 before copying and delegates remote checksum verification to rclone using
+Drive's upload response (and `--checksum` for existing files). It persists a ledger so
+restarts do not duplicate files. Samples/partial exports remain local. No files are
+made public. Google sign-in uses the `drive.file` scope. Credentials belong in a
+private mounted directory, separate from the dashboard; they are never committed.
+The process needs rclone, a writable credentials directory and a public status-file
+location. Only sanitized upload status and private Drive links reach the dashboard.
+The private configuration pins the backup folder ID, avoiding unnecessary root
+lookups and restricting upload paths to that folder. Shared-client
+Google API rate limits can still delay uploads; local backups remain available.
+Uploads start on export completion rather than an hourly schedule. To retry a
+stopped upload, restart only the upload service; its ledger skips verified files.
 
 ## Validation and remaining work
 
@@ -177,7 +258,18 @@ categories, bookmarks and reading/watching progress. It injects an insertion fai
 inside a chunk, verifies rollback, replays twice and checks existing state is unchanged.
 Synthetic fixture backups are NOT real catalog downloads.
 
-Production acceptance still needs a verified adapter/config for each desired live
-source, installed-extension source-ID/URL/playback checks, Android restore tests
+Sources outside the configured inventory still need verified adapters/configs.
+Production acceptance needs on-device installed-extension URL/playback checks, Android restore tests
 against a pre-populated library with a forced interruption, and on-device timings.
 The code makes no claim that 336,277 entries have been crawled or restored on a phone.
+
+### Source throttling
+
+Extension collectors retry temporary engine failures up to eight times per page.
+Website HTTP 429 errors wrapped in engine HTTP 500 responses receive a minimum
+60-second cooldown. Opaque engine HTTP 500 errors use the same cooldown because
+older engines hide the upstream status. Numeric Retry-After values are honored up to five minutes.
+NHentai listing requests are spaced at least three seconds apart. Persistent
+failures still stop visibly with the page checkpoint retained. Errors identify the
+source and page without displaying upstream response bodies. No scheduled restart
+or monitoring task is added.

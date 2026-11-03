@@ -194,6 +194,10 @@ class CatalogWireTest {
 }
 ''', encoding='utf-8')
     if reader == 'anikku':
+        test.write_text(test.read_text(encoding='utf-8').replace(
+            '        CatalogRestoreValidation.check(backup.backupManga)',
+            '        assertEquals(eu.kanade.tachiyomi.animesource.model.FetchType.Seasons, backup.backupManga.first().fetchType)\n'
+            '        CatalogRestoreValidation.check(backup.backupManga)'), encoding='utf-8')
         for path in (root / 'app/src').glob('*/AndroidManifest.xml'):
             text = path.read_text(encoding='utf-8').replace('android:label="@string/app_name"',
                     'android:label="Anikku Library Import"').replace('android:icon="@mipmap/ic_launcher"',
@@ -213,7 +217,7 @@ class CatalogWireTest {
     sql_version = re.search(r'^sqldelight = "([^"]+)"', version_file, re.M).group(1)
     text = replace_once(text, '\ndependencies {\n',
         f'\ndependencies {{\n    testImplementation("app.cash.sqldelight:sqlite-driver:{sql_version}")\n')
-    text, count = re.subn(r'versionCode = \d+', 'versionCode = 100000 + (System.getenv("GITHUB_RUN_NUMBER")?.toInt() ?: 0)', text, count=1)
+    text, count = re.subn(r'versionCode = \d+', 'versionCode = 2000000 + (System.getenv("GITHUB_RUN_NUMBER")?.toInt() ?: 0)', text, count=1)
     if count != 1:
         raise ValueError('Missing versionCode')
     text = replace_once(text, '    buildTypes {', '''    // A persistent existing certificate may be supplied by repository secrets.
@@ -229,6 +233,13 @@ class CatalogWireTest {
     buildTypes {''')
     text = replace_once(text, '        val debug by getting {',
                         '        val debug by getting {\n            if (catalogSigning != null) signingConfig = catalogSigning')
+    if reader == 'komikku':
+        # The old runner-generated signing key was not retained. A separate package
+        # allows migration by backup while leaving that installation and its data intact.
+        text = replace_once(text, 'applicationIdSuffix = ".debug"', 'applicationIdSuffix = ".catalog"') if 'applicationIdSuffix = ".debug"' in text else replace_once(text, 'applicationIdSuffix = ".dev"', 'applicationIdSuffix = ".catalog"')
+        for manifest in (root / 'app/src').glob('*/AndroidManifest.xml'):
+            manifest.write_text(manifest.read_text(encoding='utf-8').replace(
+                'android:label="@string/app_name"', 'android:label="Komikku Library Import"'), encoding='utf-8')
     path.write_text(text, encoding='utf-8')
 
 

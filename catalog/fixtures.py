@@ -21,7 +21,8 @@ def main():
         with store.db:
             store.db.executemany('INSERT OR IGNORE INTO entries(url,payload) VALUES (?,?)', (
                 (f'/entry/{i}', json.dumps({'url': f'/entry/{i}', 'title': f'Title {i} 🐈',
-                 'author': '', 'artist': '', 'description': '', 'thumbnail': '', 'genres': [], 'status': 0}))
+                 'author': '', 'artist': '', 'description': '', 'thumbnail': '', 'genres': [], 'status': 0,
+                 'fetch_type': 0 if i == 0 else 1}))
                 for i in range(args.count)))
             store.put_checkpoint('discovered', 'yes')
         for reader in ('anikku', 'komikku'):

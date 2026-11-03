@@ -21,12 +21,15 @@ class Entry:
     thumbnail: str = ""
     genres: tuple[str, ...] = ()
     status: int = 0
+    fetch_type: int = 1  # Anikku enum: Seasons=0, Episodes=1. Never applied to manga readers.
 
     def validate(self):
         if not self.url.strip() or not self.title.strip():
             raise ValueError("Adapter returned an empty reader URL or title")
         if not 0 <= self.status <= 6:
             raise ValueError("Invalid reader status")
+        if self.fetch_type not in (0, 1):
+            raise ValueError('Invalid Anikku fetch type')
 
 
 @dataclass(frozen=True)

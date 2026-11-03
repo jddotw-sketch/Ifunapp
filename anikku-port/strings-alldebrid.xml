@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="alldebrid_title">AllDebrid</string>
+    <string name="alldebrid_enable">Use AllDebrid for torrents</string>
+    <string name="alldebrid_summary">Sends torrents to your AllDebrid account for streaming and downloads. Requires Premium. Turn off to use local TorrServer. Cloud errors never switch to local torrenting automatically.</string>
+    <string name="alldebrid_key">AllDebrid API key</string>
+    <string name="alldebrid_configured">API key stored securely on this device</string>
+    <string name="alldebrid_not_configured">Add an API key to enable AllDebrid</string>
+    <string name="alldebrid_forget">Remove AllDebrid API key</string>
+    <string name="alldebrid_key_help">Create an API key at alldebrid.com/apikeys. It is encrypted on this device and excluded from backups. Transfers remain in your AllDebrid account when playback stops.</string>
+    <string name="alldebrid_validate_save">Validate and save</string>
+    <string name="alldebrid_error_key">Add or replace your AllDebrid API key in Player settings.</string>
+    <string name="alldebrid_error_account">AllDebrid requires an active Premium account. Check your account status.</string>
+    <string name="alldebrid_error_blocked">AllDebrid blocked this connection. Check your account and VPN settings.</string>
+    <string name="alldebrid_error_rate">AllDebrid is busy or a limit was reached. Wait before retrying.</string>
+    <string name="alldebrid_error_pending">AllDebrid is still preparing this torrent. Retry later; the cloud transfer continues.</string>
+    <string name="alldebrid_error_file">The selected torrent file is unavailable or is not a supported video.</string>
+    <string name="alldebrid_error_storage">The API key could not be read or saved securely. Remove it and enter it again.</string>
+    <string name="alldebrid_error_torrent">AllDebrid could not process this torrent. Check the transfer in your AllDebrid account.</string>
+    <string name="alldebrid_error_network">Could not connect to AllDebrid or read its response. Please retry later.</string>
+    <string name="library_import_app_name">Anikku Library Import</string>
+</resources>
