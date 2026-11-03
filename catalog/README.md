@@ -267,7 +267,8 @@ The code makes no claim that 336,277 entries have been crawled or restored on a 
 
 Extension collectors retry temporary engine failures up to eight times per page.
 Website HTTP 429 errors wrapped in engine HTTP 500 responses receive a minimum
-60-second cooldown; numeric Retry-After values are honored up to five minutes.
+60-second cooldown. Opaque engine HTTP 500 errors use the same cooldown because
+older engines hide the upstream status. Numeric Retry-After values are honored up to five minutes.
 NHentai listing requests are spaced at least three seconds apart. Persistent
 failures still stop visibly with the page checkpoint retained. Errors identify the
 source and page without displaying upstream response bodies. No scheduled restart

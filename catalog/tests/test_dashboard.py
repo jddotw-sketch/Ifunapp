@@ -66,6 +66,12 @@ class EngineTests(unittest.TestCase):
         self.assertIn('page 133', str(caught.exception))
         self.assertNotIn('secret-token', str(caught.exception))
 
+    def test_opaque_engine_error_also_uses_source_cooldown(self):
+        error = HTTPError('url',500,'error',{},io.BytesIO(b'Server Error'))
+        with patch('catalog.engine_api.urlopen', side_effect=error):
+            with self.assertRaises(Retryable) as caught: self.adapter().fetch('152')
+        self.assertEqual(60, caught.exception.retry_after)
+
     def test_rate_limit_honors_bounded_retry_after(self):
         for value, expected in [('120',120), ('9999',300), ('invalid',60)]:
             error = HTTPError('url',429,'error',{'Retry-After':value},io.BytesIO(b''))

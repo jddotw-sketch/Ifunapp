@@ -54,7 +54,8 @@ class EngineAdapter:
                     delay = min(300, max(delay, int(value)))
                 raise Retryable(f'{context}: source rate limit; waiting before retrying', retry_after=delay) from exc
             if 500 <= exc.code < 600:
-                raise Retryable(f'{context}: extension engine returned HTTP {exc.code}', retry_after=15) from exc
+                # Older engines return only 'Server Error', hiding upstream rate limits.
+                raise Retryable(f'{context}: extension engine returned HTTP {exc.code}', retry_after=60) from exc
             raise ValueError(f'{context}: extension engine returned HTTP {exc.code}') from exc
         except (URLError, TimeoutError, IncompleteRead, RemoteDisconnected, ConnectionError) as exc:
             raise Retryable('Extension request timed out or could not connect', retry_after=3) from exc
